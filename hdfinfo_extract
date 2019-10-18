@@ -1,0 +1,26 @@
+import os, sys, gdal, osr, re
+import numpy as np
+import glob
+import matplotlib.pyplot as plt
+
+os.chdir('~/Downloads/MODIS/test')
+hdf_ds = gdal.Open('MYD11A1.A2019091.h08v05.006.2019092173029.hdf')
+
+hdf_info = gdal.Info(hdf_ds)
+hdf_info_split = hdf_info.split('\n')
+strind_e = [hdf_info_split.index(i) for i in hdf_info_split if 'EASTBOUNDINGCOORDINATE' in i]
+str_e = hdf_info_split[strind_e[0]]
+coord_e = float(np.asarray(re.findall('-?\d+\.\d+', str_e))[0])
+strind_s = [hdf_info_split.index(i) for i in hdf_info_split if 'SOUTHBOUNDINGCOORDINATE' in i]
+str_s = hdf_info_split[strind_s[0]]
+coord_s = float(np.asarray(re.findall('-?\d+\.\d+', str_s))[0])
+strind_w = [hdf_info_split.index(i) for i in hdf_info_split if 'WESTBOUNDINGCOORDINATE' in i]
+str_w = hdf_info_split[strind_w[0]]
+coord_w = float(np.asarray(re.findall('-?\d+\.\d+', str_w))[0])
+strind_n = [hdf_info_split.index(i) for i in hdf_info_split if 'NORTHBOUNDINGCOORDINATE' in i]
+str_n = hdf_info_split[strind_n[0]]
+coord_n = float(np.asarray(re.findall('-?\d+\.\d+', str_n))[0])
+
+coord_bound = np.array([coord_e, coord_s, coord_w, coord_n])
+subdatasets = hdf_ds.GetSubDatasets()
+lst_ds = gdal.Open(subdatasets[0][0]).ReadAsArray()

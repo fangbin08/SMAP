@@ -56,7 +56,7 @@ dst_dir = '/Users/binfang/Downloads/MODIS_new/test/output'
 subdataset_id = [0, 1, 4, 5] # ith of Layers to be extracted. For MODIS LST data: LST_Day_1km, QC_Day, LST_Night_1km, QC_Night
                              # The number of layers can be acquired by GetSubDatasets()
 band_n = 4
-# Boundary coordinates (CONUS)
+# Set the boundary coordinates of the map to subset (CONUS)
 lat_roi_max = 53
 lat_roi_min = 25
 lon_roi_max = -67

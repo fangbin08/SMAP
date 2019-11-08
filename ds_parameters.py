@@ -2,16 +2,6 @@ import os
 import numpy as np
 import h5py
 
-# Specify file paths
-# Path of EASE projection lat/lon tables
-path_ease_coord_table = '/Volumes/My Passport/SMAP_Project/Datasets/geolocation'
-# Path of current workspace
-path_workspace = '/Users/binfang/Documents/SMAP_CONUS/codes_py'
-# Path of backup
-path_backup = '/Users/binfang/Documents/SMAP_CONUS/codes_py/backup'
-# Path of MODIS LST folder
-path_modis_lst = '/Volumes/My Passport/SMAP_Project/Datasets/MODIS/MYD11A1/Reprojected'
-
 #########################################################################################################
 # (Function 1) Define a function for generating EASE grid projection lat/lon tables from CATDS provided data
 
@@ -280,6 +270,16 @@ def find_easeind_lofrhi_ext33km(lat_hires, lon_hires, interdist_lowres,
 #########################################################################################
 #########################################################################################
 # 0. Input variables
+
+# Specify file paths
+# Path of EASE projection lat/lon tables
+path_ease_coord_table = '/Volumes/My Passport/SMAP_Project/Datasets/geolocation'
+# Path of current workspace
+path_workspace = '/Users/binfang/Documents/SMAP_CONUS/codes_py'
+# Path of backup
+path_backup = '/Users/binfang/Documents/SMAP_CONUS/codes_py/backup'
+# Path of MODIS LST folder
+path_modis_lst = '/Volumes/My Passport/SMAP_Project/Datasets/MODIS/MYD11A1/Reprojected'
 
 # # Load in variables
 # os.chdir(path_workspace)

@@ -261,9 +261,6 @@ def find_easeind_lofrhi_ext33km(lat_hires, lon_hires, interdist_lowres,
 
     col_ease_dest_ind_new = np.asarray(col_ease_dest_ind_new_init)
 
-    # row_ease_dest_ind_new = row_ease_dest_ind_new.reshape(1, -1)
-    # col_ease_dest_ind_new = col_ease_dest_ind_new.reshape(1, -1)
-
     return row_ease_dest_ind_new, col_ease_dest_ind_new
 
 

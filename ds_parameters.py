@@ -59,8 +59,8 @@ def geo2easeGridV2(latitude, longitude, interdist, num_row, num_col):
     x = a * k0 * (longitude - lambda0) * np.pi / 180
     y = a * q / (2 * k0)
     # as Brodzik et al
-    column = np.round(r0 + (x / c))
-    row = np.round(s0 - (y / c))
+    column = np.round(r0 + (x / c)).astype(int)
+    row = np.round(s0 - (y / c)).astype(int)
 
     del a, f, b, e, c, nl, nc, s0, r0, phi0, lambda0, phi1, k0, q, x, y
 
@@ -98,18 +98,17 @@ def geo_coord_gen(lat_geo_extent_max, lat_geo_extent_min, lon_geo_extent_max, lo
 def find_easeind_hifrlo(lat_hires, lon_hires, interdist_lowres, num_row_lowres, num_col_lowres, row_lowres_ind, col_lowres_ind):
 
     lon_meshgrid, lat_meshgrid = np.meshgrid(lon_hires, lat_hires)
-    lat_meshgrid_array = lat_meshgrid.flatten()
-    lon_meshgrid_array = lon_meshgrid.flatten()
+
+    # Select only the first row + first column to find the row/column indices
+    lat_meshgrid_array = np.concatenate((lat_meshgrid[:, 0], lat_meshgrid[0, :]), axis=0)
+    lon_meshgrid_array = np.concatenate((lon_meshgrid[:, 0], lon_meshgrid[0, :]), axis=0)
 
     [row_ind_toresp, col_ind_toresp] = \
         geo2easeGridV2(lat_meshgrid_array, lon_meshgrid_array, interdist_lowres,
                        num_row_lowres, num_col_lowres)
 
-    row_ind_toresp = np.reshape(row_ind_toresp, np.shape(lon_meshgrid))
-    col_ind_toresp = np.reshape(col_ind_toresp, np.shape(lon_meshgrid))
-
-    row_ind_toresp = np.array(row_ind_toresp[:, 1])
-    col_ind_toresp = np.array(col_ind_toresp[1, :])
+    row_ind_toresp = row_ind_toresp[:(len(lat_hires))]
+    col_ind_toresp = col_ind_toresp[(len(lat_hires)):]
 
     # Assign the empty to-be-resampled grids with index numbers of corresponding nearest destination grids
     row_ind_diff = np.setdiff1d(row_ind_toresp, row_lowres_ind)
@@ -149,18 +148,17 @@ def find_easeind_hifrlo(lat_hires, lon_hires, interdist_lowres, num_row_lowres, 
 def find_easeind_lofrhi(lat_hires, lon_hires, interdist_lowres, num_row_lowres, num_col_lowres, row_lowres_ind, col_lowres_ind):
 
     lon_meshgrid, lat_meshgrid = np.meshgrid(lon_hires, lat_hires)
-    lat_meshgrid_array = lat_meshgrid.flatten()
-    lon_meshgrid_array = lon_meshgrid.flatten()
+
+    # Select only the first row + first column to find the row/column indices
+    lat_meshgrid_array = np.concatenate((lat_meshgrid[:, 0], lat_meshgrid[0, :]), axis=0)
+    lon_meshgrid_array = np.concatenate((lon_meshgrid[:, 0], lon_meshgrid[0, :]), axis=0)
 
     [row_ind_toresp, col_ind_toresp] = \
         geo2easeGridV2(lat_meshgrid_array, lon_meshgrid_array, interdist_lowres,
                        num_row_lowres, num_col_lowres)
 
-    row_ind_toresp = np.reshape(row_ind_toresp, np.shape(lon_meshgrid))
-    col_ind_toresp = np.reshape(col_ind_toresp, np.shape(lon_meshgrid))
-
-    row_ind_toresp = np.array(row_ind_toresp[:, 1])
-    col_ind_toresp = np.array(col_ind_toresp[1, :])
+    row_ind_toresp = row_ind_toresp[:(len(lat_hires))]
+    col_ind_toresp = col_ind_toresp[(len(lat_hires)):]
 
     # Assign the low resolution grids with corresponding high resolution grids index numbers
     row_ease_dest_init = []
@@ -205,46 +203,45 @@ def find_easeind_lofrhi_ext33km(lat_hires, lon_hires, interdist_lowres,
                                 num_row_lowres, num_col_lowres, row_lowres_ind, col_lowres_ind, ext_grid):
 
     lon_meshgrid, lat_meshgrid = np.meshgrid(lon_hires, lat_hires)
-    lat_meshgrid_array = lat_meshgrid.flatten()
-    lon_meshgrid_array = lon_meshgrid.flatten()
+
+    # Select only the first row + first column to find the row/column indices
+    lat_meshgrid_array = np.concatenate((lat_meshgrid[:, 0], lat_meshgrid[0, :]), axis=0)
+    lon_meshgrid_array = np.concatenate((lon_meshgrid[:, 0], lon_meshgrid[0, :]), axis=0)
 
     [row_ind_toresp, col_ind_toresp] = \
         geo2easeGridV2(lat_meshgrid_array, lon_meshgrid_array, interdist_lowres,
                        num_row_lowres, num_col_lowres)
 
-    row_ind_toresp = np.reshape(row_ind_toresp, np.shape(lon_meshgrid))
-    col_ind_toresp = np.reshape(col_ind_toresp, np.shape(lon_meshgrid))
-
-    row_ind_toresp = row_ind_toresp[:, 1].reshape(1, -1)
-    col_ind_toresp = col_ind_toresp[1, :].reshape(1, -1)
+    row_ind_toresp = row_ind_toresp[:(len(lat_hires))]
+    col_ind_toresp = col_ind_toresp[(len(lat_hires)):]
 
     # Assign the low resolution grids with corresponding high resolution grids index numbers
     row_ease_dest_init = []
-    for x in range(len(row_lowres_ind[0])):
-        row_ind = np.where(row_ind_toresp == row_lowres_ind[0, x])
-        row_ind = row_ind[1].ravel()
+    for x in range(len(row_lowres_ind)):
+        row_ind = np.where(row_ind_toresp == row_lowres_ind[x])
+        row_ind = np.array(row_ind).ravel()
         row_ease_dest_init.append(row_ind)
 
     row_ease_dest_ind = np.asarray(row_ease_dest_init)
 
     col_ease_dest_init = []
-    for x in range(len(col_lowres_ind[0])):
-        col_ind = np.where(col_ind_toresp == col_lowres_ind[0, x])
-        col_ind = col_ind[1].ravel()
+    for x in range(len(col_lowres_ind)):
+        col_ind = np.where(col_ind_toresp == col_lowres_ind[x])
+        col_ind = np.array(col_ind).ravel()
         col_ease_dest_init.append(col_ind)
 
     col_ease_dest_ind = np.asarray(col_ease_dest_init)
 
     # Assign the empty to-be-resampled grids with index numbers of corresponding nearest destination grids
     for x in range(len(row_ease_dest_ind)):
-        if len(row_ease_dest_ind[x]) == 0 and x != 0 and x != len(row_ease_dest_ind):
+        if len(row_ease_dest_ind[x]) == 0 and x != 0 and x != len(row_ease_dest_ind)-1:
             # Exclude the first and last elements
             row_ease_dest_ind[x] = np.array([row_ease_dest_ind[x - 1], row_ease_dest_ind[x + 1]]).ravel()
         else:
             pass
 
     for x in range(len(col_ease_dest_ind)):
-        if len(col_ease_dest_ind[x]) == 0 and x != 0 and x != len(col_ease_dest_ind):
+        if len(col_ease_dest_ind[x]) == 0 and x != 0 and x != len(col_ease_dest_ind)-1:
             # Exclude the first and last elements
             col_ease_dest_ind[x] = np.array([col_ease_dest_ind[x - 1], col_ease_dest_ind[x + 1]]).ravel()
         else:
@@ -259,7 +256,7 @@ def find_easeind_lofrhi_ext33km(lat_hires, lon_hires, interdist_lowres,
         row_newmin = np.amin(row_ease_dest_ind[x]) - ext_grid
         row_newmax = np.amax(row_ease_dest_ind[x]) + ext_grid
         row_newarray = np.arange(row_newmin, row_newmax+1)
-        row_newarray = row_newarray[np.where((row_newarray >= 0) & (row_newarray <= len(lat_hires[0])))].ravel()
+        row_newarray = row_newarray[np.where((row_newarray >= 0) & (row_newarray <= len(lat_hires)))].ravel()
         row_ease_dest_ind_new_init.append(row_newarray)
 
     row_ease_dest_ind_new = np.asarray(row_ease_dest_ind_new_init)
@@ -269,13 +266,13 @@ def find_easeind_lofrhi_ext33km(lat_hires, lon_hires, interdist_lowres,
         col_newmin = np.amin(col_ease_dest_ind[x]) - ext_grid
         col_newmax = np.amax(col_ease_dest_ind[x]) + ext_grid
         col_newarray = np.arange(col_newmin, col_newmax+1)
-        col_newarray = col_newarray[np.where((col_newarray >= 0) & (col_newarray <= len(lon_hires[0])))].ravel()
+        col_newarray = col_newarray[np.where((col_newarray >= 0) & (col_newarray <= len(lon_hires)))].ravel()
         col_ease_dest_ind_new_init.append(col_newarray)
 
     col_ease_dest_ind_new = np.asarray(col_ease_dest_ind_new_init)
 
-    row_ease_dest_ind_new = row_ease_dest_ind_new.reshape(1, -1)
-    col_ease_dest_ind_new = col_ease_dest_ind_new.reshape(1, -1)
+    # row_ease_dest_ind_new = row_ease_dest_ind_new.reshape(1, -1)
+    # col_ease_dest_ind_new = col_ease_dest_ind_new.reshape(1, -1)
 
     return row_ease_dest_ind_new, col_ease_dest_ind_new
 
@@ -286,7 +283,7 @@ def find_easeind_lofrhi_ext33km(lat_hires, lon_hires, interdist_lowres,
 
 # # Load in variables
 # os.chdir(path_workspace)
-# f = h5py.File("ds_parameters.hdf5", "r")
+# f = h5py.File('ds_parameters.hdf5', 'r')
 # varname_list = list(f.keys())
 #
 # for x in range(len(varname_list)):
@@ -381,25 +378,25 @@ num_col = size_world_ease_36km[1]
 
 # Save variables
 os.chdir(path_workspace)
-var_name = ["cellsize_400m", "cellsize_1km", "cellsize_5km", "cellsize_9km",
-            "cellsize_12_5km", "cellsize_25km", "cellsize_36km", "interdist_ease_400m",
-            "interdist_ease_1km", "interdist_ease_9km", "interdist_ease_12_5km",
-            "interdist_ease_25km", "interdist_ease_36km", "lat_conus_max",
-            "lat_conus_min", "lon_conus_max", "lon_conus_min",
-            "lat_world_max", "lat_world_min", "lon_world_max",
-            "lon_world_min", "lat_world_ease_1km", "lon_world_ease_1km",
-            "lat_world_ease_9km", "lon_world_ease_9km", "lat_world_ease_12_5km",
-            "lon_world_ease_12_5km", "lat_world_ease_25km", "lon_world_ease_25km",
-            "lat_world_ease_36km", "lon_world_ease_36km", "size_world_ease_400m",
-            "size_world_ease_1km", "size_world_ease_9km", "size_world_ease_12_5km",
-            "size_world_ease_25km", "size_world_ease_36km"]
+var_name = ['cellsize_400m', 'cellsize_1km', 'cellsize_5km', 'cellsize_9km',
+            'cellsize_12_5km', 'cellsize_25km', 'cellsize_36km', 'interdist_ease_400m',
+            'interdist_ease_1km', 'interdist_ease_9km', 'interdist_ease_12_5km',
+            'interdist_ease_25km', 'interdist_ease_36km', 'lat_conus_max',
+            'lat_conus_min', 'lon_conus_max', 'lon_conus_min',
+            'lat_world_max', 'lat_world_min', 'lon_world_max',
+            'lon_world_min', 'lat_world_ease_1km', 'lon_world_ease_1km',
+            'lat_world_ease_9km', 'lon_world_ease_9km', 'lat_world_ease_12_5km',
+            'lon_world_ease_12_5km', 'lat_world_ease_25km', 'lon_world_ease_25km',
+            'lat_world_ease_36km', 'lon_world_ease_36km', 'size_world_ease_400m',
+            'size_world_ease_1km', 'size_world_ease_9km', 'size_world_ease_12_5km',
+            'size_world_ease_25km', 'size_world_ease_36km']
 
-with h5py.File("ds_parameters.hdf5", "w") as f:
+with h5py.File('ds_parameters.hdf5', 'w') as f:
     for x in var_name:
         f.create_dataset(x, data=eval(x))
 f.close()
 
-print("Section 1 is completed")
+print('Section 1 is completed')
 
 
 #######################################################################################
@@ -451,33 +448,33 @@ col_world_ease_36km_ind = np.arange(len(lon_world_ease_36km))
 
 
 # Save new generated variables from section 2 & 3 to parameters.hdf5
-var_name_2_3 = ["lat_conus_ease_1km", "lon_conus_ease_1km", "lat_conus_ease_9km", "lon_conus_ease_9km",
-                "lat_conus_ease_12_5km", "lon_conus_ease_12_5km", "lat_conus_ease_25km", "lon_conus_ease_25km",
-                "lat_conus_ease_36km", "lon_conus_ease_36km", "lat_world_geo_1km", "lon_world_geo_1km",
-                "lat_world_geo_5km", "lon_world_geo_5km", "lat_world_geo_12_5km", "lon_world_geo_12_5km",
-                "lat_world_geo_25km", "lon_world_geo_25km", "lat_conus_geo_1km", "lon_conus_geo_1km",
-                "lat_conus_geo_5km", "lon_conus_geo_5km", "lat_conus_geo_12_5km", "lon_conus_geo_12_5km",
-                "lat_conus_geo_25km", "lon_conus_geo_25km", "row_conus_ease_1km_ind", "col_conus_ease_1km_ind",
-                "row_conus_ease_9km_ind", "col_conus_ease_9km_ind", "row_conus_ease_12_5km_ind",
-                "col_conus_ease_12_5km_ind", "row_conus_ease_25km_ind", "col_conus_ease_25km_ind",
-                "row_conus_ease_36km_ind", "col_conus_ease_36km_ind", "row_conus_geo_1km_ind",
-                "col_conus_geo_1km_ind", "row_conus_geo_5km_ind", "col_conus_geo_5km_ind",
-                "row_conus_geo_12_5km_ind", "col_conus_geo_12_5km_ind", "row_conus_geo_25km_ind",
-                "col_conus_geo_25km_ind", "row_world_ease_1km_ind", "col_world_ease_1km_ind", "row_world_ease_9km_ind",
-                "col_world_ease_9km_ind", "row_world_ease_25km_ind", "col_world_ease_25km_ind", "row_world_ease_36km_ind",
-                "col_world_ease_36km_ind"]
+var_name_2_3 = ['lat_conus_ease_1km', 'lon_conus_ease_1km', 'lat_conus_ease_9km', 'lon_conus_ease_9km',
+                'lat_conus_ease_12_5km', 'lon_conus_ease_12_5km', 'lat_conus_ease_25km', 'lon_conus_ease_25km',
+                'lat_conus_ease_36km', 'lon_conus_ease_36km', 'lat_world_geo_1km', 'lon_world_geo_1km',
+                'lat_world_geo_5km', 'lon_world_geo_5km', 'lat_world_geo_12_5km', 'lon_world_geo_12_5km',
+                'lat_world_geo_25km', 'lon_world_geo_25km', 'lat_conus_geo_1km', 'lon_conus_geo_1km',
+                'lat_conus_geo_5km', 'lon_conus_geo_5km', 'lat_conus_geo_12_5km', 'lon_conus_geo_12_5km',
+                'lat_conus_geo_25km', 'lon_conus_geo_25km', 'row_conus_ease_1km_ind', 'col_conus_ease_1km_ind',
+                'row_conus_ease_9km_ind', 'col_conus_ease_9km_ind', 'row_conus_ease_12_5km_ind',
+                'col_conus_ease_12_5km_ind', 'row_conus_ease_25km_ind', 'col_conus_ease_25km_ind',
+                'row_conus_ease_36km_ind', 'col_conus_ease_36km_ind', 'row_conus_geo_1km_ind',
+                'col_conus_geo_1km_ind', 'row_conus_geo_5km_ind', 'col_conus_geo_5km_ind',
+                'row_conus_geo_12_5km_ind', 'col_conus_geo_12_5km_ind', 'row_conus_geo_25km_ind',
+                'col_conus_geo_25km_ind', 'row_world_ease_1km_ind', 'col_world_ease_1km_ind', 'row_world_ease_9km_ind',
+                'col_world_ease_9km_ind', 'row_world_ease_25km_ind', 'col_world_ease_25km_ind', 'row_world_ease_36km_ind',
+                'col_world_ease_36km_ind']
 
-with h5py.File("ds_parameters.hdf5", "a") as f:
+with h5py.File('ds_parameters.hdf5', 'a') as f:
     for x in var_name_2_3:
         f.create_dataset(x, data=eval(x))
 f.close()
 
-print("Section 2/3 are completed")
+print('Section 2/3 are completed')
 
 
 #####################################################################################################
 # 4. Find the corresponding index numbers for the high spatial resolution row/col tables
-# from the low spatial resolution row/col tables (Downscale).
+# from the low spatial resolution row/col tables (Disaggregate).
 
 # CONUS
 # For 1 km from 9 km
@@ -519,7 +516,7 @@ print("Section 2/3 are completed")
 
 #####################################################################################################
 # 5. Find the corresponding index numbers for the low spatial resolution row/col tables
-# from the high spatial resolution row/col tables (Upscale)
+# from the high spatial resolution row/col tables (Aggregate)
 # High resolution: Geographic projection
 # Low resolution: EASE grid projection
 
@@ -547,48 +544,54 @@ print("Section 2/3 are completed")
 
 
 # Save new generated variables from section 4 & 5 to parameters.hdf5
-var_name_4_5 = ["row_conus_ease_1km_from_9km_ind", "col_conus_ease_1km_from_9km_ind", "row_conus_ease_1km_from_12_5km_ind",
-                "col_conus_ease_1km_from_12_5km_ind", "row_conus_ease_1km_from_25km_ind", "col_conus_ease_1km_from_25km_ind",
-                "row_conus_ease_1km_from_36km_ind", "col_conus_ease_1km_from_36km_ind"]
-var_name_4_5_vlen = ["row_conus_ease_1km_from_geo_1km_ind", "col_conus_ease_1km_from_geo_1km_ind",
-                     "row_conus_ease_12_5km_from_geo_5km_ind", "col_conus_ease_12_5km_from_geo_5km_ind",
-                     "row_conus_ease_12_5km_from_geo_12_5km_ind", "col_conus_ease_12_5km_from_geo_12_5km_ind",
-                     "row_conus_ease_25km_from_geo_5km_ind", "col_conus_ease_25km_from_geo_5km_ind",
-                     "row_world_ease_1km_from_geo_1km_ind", "col_world_ease_1km_from_geo_1km_ind",
-                     "row_world_ease_25km_from_geo_5km_ind", "col_world_ease_25km_from_geo_5km_ind"]
+var_name_4_5 = ['row_conus_ease_1km_from_9km_ind', 'col_conus_ease_1km_from_9km_ind', 'row_conus_ease_1km_from_12_5km_ind',
+                'col_conus_ease_1km_from_12_5km_ind', 'row_conus_ease_1km_from_25km_ind', 'col_conus_ease_1km_from_25km_ind',
+                'row_conus_ease_1km_from_36km_ind', 'col_conus_ease_1km_from_36km_ind', 'row_world_ease_1km_from_9km_ind',
+                'col_world_ease_1km_from_9km_ind', 'row_world_ease_1km_from_25km_ind', 'col_world_ease_1km_from_25km_ind',
+                'row_world_ease_1km_from_36km_ind', 'col_world_ease_1km_from_36km_ind']
+var_name_4_5_vlen = ['row_conus_ease_1km_from_geo_1km_ind', 'col_conus_ease_1km_from_geo_1km_ind',
+                     'row_conus_ease_12_5km_from_geo_5km_ind', 'col_conus_ease_12_5km_from_geo_5km_ind',
+                     'row_conus_ease_12_5km_from_geo_12_5km_ind', 'col_conus_ease_12_5km_from_geo_12_5km_ind',
+                     'row_world_ease_1km_from_geo_1km_ind', 'col_world_ease_1km_from_geo_1km_ind',
+                     'row_world_ease_25km_from_geo_5km_ind', 'col_world_ease_25km_from_geo_5km_ind']
 
-with h5py.File("ds_parameters.hdf5", "a") as f:
+with h5py.File('ds_parameters.hdf5', 'a') as f:
     for x in var_name_4_5:
         f.create_dataset(x, data=eval(x))
 f.close()
 
 # Store variable-length type variables to the parameter file
 dt = h5py.special_dtype(vlen=np.int64)
-with h5py.File("ds_parameters.hdf5", "a") as f:
+with h5py.File('ds_parameters.hdf5', 'a') as f:
     for x in var_name_4_5_vlen:
         f.create_dataset(x, data=eval(x), dtype=dt)
 f.close()
 
-print("Section 4/5 is completed")
+print('Section 4/5 are completed')
 
 
 #####################################################################################################
 # 6. Find the corresponding index numbers for the low spatial resolution row/col tables
-# from the high spatial resolution row/col tables (Upscale, 33-km extension)
+# from the high spatial resolution row/col tables (Aggregate, 33-km extension)
 
 ext_grid = 12
 [row_conus_ease_9km_from_1km_ext33km_ind, col_conus_ease_9km_from_1km_ext33km_ind] = find_easeind_lofrhi_ext33km\
     (lat_conus_ease_1km, lon_conus_ease_1km, interdist_ease_9km, size_world_ease_9km[0], size_world_ease_9km[1],
      row_conus_ease_9km_ind, col_conus_ease_9km_ind, ext_grid)
 
+[row_world_ease_9km_from_1km_ext33km_ind, col_world_ease_9km_from_1km_ext33km_ind] = find_easeind_lofrhi_ext33km\
+    (lat_world_ease_1km, lon_world_ease_1km, interdist_ease_9km, size_world_ease_9km[0], size_world_ease_9km[1],
+     row_world_ease_9km_ind, col_world_ease_9km_ind, ext_grid)
+
 # Save new generated variables from section 6 to parameters.hdf5
-var_name_6_vlen = ["row_conus_ease_9km_from_1km_ext33km_ind", "col_conus_ease_9km_from_1km_ext33km_ind"]
+var_name_6_vlen = ['row_conus_ease_9km_from_1km_ext33km_ind', 'col_conus_ease_9km_from_1km_ext33km_ind',
+                   'row_world_ease_9km_from_1km_ext33km_ind', 'col_world_ease_9km_from_1km_ext33km_ind']
 
 # Store variable-length type variables to the parameter file
 dt = h5py.special_dtype(vlen=np.int64)
-with h5py.File("ds_parameters.hdf5", "a") as f:
+with h5py.File('ds_parameters.hdf5', 'a') as f:
     for x in var_name_6_vlen:
         f.create_dataset(x, data=eval(x), dtype=dt)
 f.close()
 
-print("Section 6 is completed")
+print('Section 6 is completed')

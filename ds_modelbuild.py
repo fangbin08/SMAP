@@ -61,7 +61,6 @@ def geo_coord_gen(lat_geo_extent_max, lat_geo_extent_min, lon_geo_extent_max, lo
     return lat_geo_output, lon_geo_output
 
 ########################################################################################################################
-
 # 0. Input variables
 # Specify file paths
 # Path of current workspace
@@ -69,7 +68,7 @@ path_workspace = '/Users/binfang/Documents/SMAP_CONUS/codes_py'
 # Path of source GLDAS data
 path_gldas = '/Volumes/My Passport/SMAP_Project/Datasets/GLDAS'
 # Path of source LTDR NDVI data
-path_ltdr = '/Volumes/My Passport/SMAP_Project/Datasets/LTDR'
+path_ltdr = '/Volumes/My Passport/SMAP_Project/Datasets/LTDR/Ver5'
 # Path of processed data
 path_procdata = '/Volumes/My Passport/SMAP_Project/Datasets/processed_data'
 # Path of Land mask
@@ -85,7 +84,7 @@ varname_list = ['row_world_ease_1km_from_25km_ind', 'col_world_ease_1km_from_25k
                     'row_world_ease_9km_from_1km_ext33km_ind', 'col_world_ease_9km_from_1km_ext33km_ind',
                     'lat_world_ease_25km', 'lon_world_ease_25km', 'lat_world_ease_9km', 'lon_world_ease_9km',
                     'lat_world_ease_1km', 'lon_world_ease_1km', 'lat_world_geo_1km', 'lon_world_geo_1km',
-                    'lat_world_geo_25km', 'lon_world_geo_25km']
+                    'lat_world_geo_5km', 'lon_world_geo_5km', 'lat_world_geo_25km', 'lon_world_geo_25km']
 # varname_list = list(f.keys())
 # varname_import = [varname_list[x] for x in varname_list]
 
@@ -99,15 +98,11 @@ os.chdir(path_lmask)
 
 lmask_file = open('EASE2_M25km.LOCImask_land50_coast0km.1388x584.bin', 'r')
 lmask_ease_25km = np.fromfile(lmask_file, dtype=np.dtype('uint8'))
-lmask_ease_25km = np.reshape(lmask_ease_25km, [len(lat_world_ease_25km), len(lon_world_ease_25km)])
+lmask_ease_25km = np.reshape(lmask_ease_25km, [len(lat_world_ease_25km), len(lon_world_ease_25km)]).astype(float)
+lmask_ease_25km[np.where(lmask_ease_25km != 0)] = np.nan
+lmask_ease_25km[np.where(lmask_ease_25km == 0)] = 1
+# lmask_ease_25km[np.where((lmask_ease_25km == 101) | (lmask_ease_25km == 255))] = 0
 lmask_file.close()
-
-# rootgrp = Dataset('GLDASp4_landmask_025d.nc4', mode='r')
-#
-# gldas_mk = rootgrp.variables['GLDAS_mask'][:]
-# gldas_mk = np.ma.getdata(np.squeeze((gldas_mk)))
-# gldas_mk = np.flipud(gldas_mk)
-# rootgrp.close()
 
 # World extent corner coordinates
 lat_world_max = 90
@@ -221,11 +216,11 @@ matsize_world_geo_1day = [len(lat_world_geo_25km), len(lon_world_geo_25km)]
 world_mat_init_geo_1day = np.empty(matsize_world_geo_1day, dtype='float32')
 world_mat_init_geo_1day[:] = np.nan
 matsize_gldas_ease_1day = [len(lat_world_ease_25km), len(lon_world_ease_25km)]
-# gldas_mat_init_ease_1day = np.empty(matsize_gldas_ease_1day, dtype='float32')
-# gldas_mat_init_ease_1day[:] = np.nan
+gldas_mat_init_ease_1day = np.empty(matsize_gldas_ease_1day, dtype='float32')
+gldas_mat_init_ease_1day[:] = np.nan
 
 
-for iyr in range(1, len(daysofyear)-1):
+for iyr in range(len(daysofyear)):
 
     os.chdir(path_gldas)
 
@@ -237,9 +232,10 @@ for iyr in range(1, len(daysofyear)-1):
     sm_gldas_geo[:] = np.nan
 
     # The indices for GLDAS data are between daysofyear[0:iyr].sum()*8 : daysofyear[0:iyr+1].sum()*8
-    # Add the last day from last year and the first day from next year to the array
+    # Add the 8 files from Dec 31, 1980 at the beginning of the yearly index
+    # Back to the last day from last year (minus 8) and the first day from next year to the array for each loop (add 8)
 
-    gldas_files_yearly = gldas_files[daysofyear[0:iyr].sum()*8-8 : daysofyear[0:iyr+1].sum()*8+8]
+    gldas_files_yearly = gldas_files[8+daysofyear[0:iyr].sum()*8-8 : 8+daysofyear[0:iyr+1].sum()*8+8]
 
     # 2.1 Extract the 3-hour GLDAS LST and SM data
     for idt in range(len(gldas_files_yearly)):
@@ -266,14 +262,15 @@ for iyr in range(1, len(daysofyear)-1):
 
     # 2.2 Extract data of the correct UTC time files for different locations in the world and joint
     # Extract the 3-hour GLDAS data from different UTC time zones and rebind the new data
+    gldas_ease_mat_init = np.empty\
+        ([matsize_gldas_ease_1day[0], matsize_gldas_ease_1day[1], len(gldas_files_yearly)//8 - 2], dtype='float32')
+    gldas_ease_mat_init[:] = np.nan
+    lst_gldas_am_ease = np.copy(gldas_ease_mat_init)
+    lst_gldas_pm_ease = np.copy(gldas_ease_mat_init)
+    sm_gldas_am_ease = np.copy(gldas_ease_mat_init)
+    sm_gldas_pm_ease = np.copy(gldas_ease_mat_init)
 
-    gldas_mat_init = np.empty([matsize_gldas_ease_1day[0], matsize_gldas_ease_1day[1], len(gldas_files_yearly)//8 - 2], dtype='float32')
-    gldas_mat_init[:] = np.nan
-    lst_gldas_am_ease = np.copy(gldas_mat_init)
-    lst_gldas_pm_ease = np.copy(gldas_mat_init)
-    sm_gldas_am_ease = np.copy(gldas_mat_init)
-    sm_gldas_pm_ease = np.copy(gldas_mat_init)
-    del (gldas_mat_init)
+    del(gldas_ease_mat_init)
 
 
     for idc in range(len(gldas_files_yearly)//8 - 2):
@@ -300,50 +297,49 @@ for iyr in range(1, len(daysofyear)-1):
                 (sm_pm_utct_day[itm] + 1) * 8 + sm_pm_gldas_ind[itm] // 3]
 
 
-            # 2.3 Add rows to GLDAS data to reach world extent
-            lst_gldas_world_am_geo_1day = np.copy(world_mat_init_geo_1day)
-            lst_gldas_world_am_geo_1day[row_gldas_geo_25km_ind, :] = lst_gldas_utc_am_geo_1day
-            lst_gldas_world_pm_geo_1day = np.copy(world_mat_init_geo_1day)
-            lst_gldas_world_pm_geo_1day[row_gldas_geo_25km_ind, :] = lst_gldas_utc_pm_geo_1day
-            sm_gldas_world_am_geo_1day = np.copy(world_mat_init_geo_1day)
-            sm_gldas_world_am_geo_1day[row_gldas_geo_25km_ind, :] = sm_gldas_utc_am_geo_1day
-            sm_gldas_world_pm_geo_1day = np.copy(world_mat_init_geo_1day)
-            sm_gldas_world_pm_geo_1day[row_gldas_geo_25km_ind, :] = sm_gldas_utc_pm_geo_1day
+        # 2.3 Add rows to GLDAS data to reach world extent
+        lst_gldas_world_am_geo_1day = np.copy(world_mat_init_geo_1day)
+        lst_gldas_world_am_geo_1day[row_gldas_geo_25km_ind, :] = lst_gldas_utc_am_geo_1day
+        lst_gldas_world_pm_geo_1day = np.copy(world_mat_init_geo_1day)
+        lst_gldas_world_pm_geo_1day[row_gldas_geo_25km_ind, :] = lst_gldas_utc_pm_geo_1day
+        sm_gldas_world_am_geo_1day = np.copy(world_mat_init_geo_1day)
+        sm_gldas_world_am_geo_1day[row_gldas_geo_25km_ind, :] = sm_gldas_utc_am_geo_1day
+        sm_gldas_world_pm_geo_1day = np.copy(world_mat_init_geo_1day)
+        sm_gldas_world_pm_geo_1day[row_gldas_geo_25km_ind, :] = sm_gldas_utc_pm_geo_1day
 
-            # 2.4 Reproject to 25 km EASE grid projection
-            # LST (AM)
-            lst_gldas_am_ease_1day = np.array(
-                [np.nanmean(lst_gldas_world_am_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
-                 for x in range(len(lat_world_ease_25km))])
-            lst_gldas_am_ease_1day = np.array(
-                [np.nanmean(lst_gldas_am_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
-                 for y in range(len(lon_world_ease_25km))])
-            lst_gldas_am_ease_1day = np.fliplr(np.rot90(lst_gldas_am_ease_1day, 3))
-            # LST (PM)
-            lst_gldas_pm_ease_1day = np.array(
-                [np.nanmean(lst_gldas_world_pm_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
-                 for x in range(len(lat_world_ease_25km))])
-            lst_gldas_pm_ease_1day = np.array(
-                [np.nanmean(lst_gldas_pm_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
-                 for y in range(len(lon_world_ease_25km))])
-            lst_gldas_pm_ease_1day = np.fliplr(np.rot90(lst_gldas_pm_ease_1day, 3))
-            # SM (AM)
-            sm_gldas_am_ease_1day = np.array(
-                [np.nanmean(sm_gldas_world_am_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
-                 for x in range(len(lat_world_ease_25km))])
-            sm_gldas_am_ease_1day = np.array(
-                [np.nanmean(sm_gldas_am_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
-                 for y in range(len(lon_world_ease_25km))])
-            sm_gldas_am_ease_1day = np.fliplr(np.rot90(sm_gldas_am_ease_1day, 3))
-            # SM (PM)
-            sm_gldas_pm_ease_1day = np.array(
-                [np.nanmean(sm_gldas_world_pm_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
-                 for x in range(len(lat_world_ease_25km))])
-            sm_gldas_pm_ease_1day = np.array(
-                [np.nanmean(sm_gldas_pm_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
-                 for y in range(len(lon_world_ease_25km))])
-            sm_gldas_pm_ease_1day = np.fliplr(np.rot90(sm_gldas_pm_ease_1day, 3))
-
+        # 2.4 Reproject to 25 km EASE grid projection
+        # LST (AM)
+        lst_gldas_am_ease_1day = np.array\
+            ([np.nanmean(lst_gldas_world_am_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
+              for x in range(len(lat_world_ease_25km))])
+        lst_gldas_am_ease_1day = np.array\
+            ([np.nanmean(lst_gldas_am_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
+              for y in range(len(lon_world_ease_25km))])
+        lst_gldas_am_ease_1day = np.fliplr(np.rot90(lst_gldas_am_ease_1day, 3))
+        # LST (PM)
+        lst_gldas_pm_ease_1day = np.array\
+            ([np.nanmean(lst_gldas_world_pm_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
+              for x in range(len(lat_world_ease_25km))])
+        lst_gldas_pm_ease_1day = np.array\
+            ([np.nanmean(lst_gldas_pm_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
+              for y in range(len(lon_world_ease_25km))])
+        lst_gldas_pm_ease_1day = np.fliplr(np.rot90(lst_gldas_pm_ease_1day, 3))
+        # SM (AM)
+        sm_gldas_am_ease_1day = np.array\
+            ([np.nanmean(sm_gldas_world_am_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
+              for x in range(len(lat_world_ease_25km))])
+        sm_gldas_am_ease_1day = np.array\
+            ([np.nanmean(sm_gldas_am_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
+              for y in range(len(lon_world_ease_25km))])
+        sm_gldas_am_ease_1day = np.fliplr(np.rot90(sm_gldas_am_ease_1day, 3))
+        # SM (PM)
+        sm_gldas_pm_ease_1day = np.array\
+            ([np.nanmean(sm_gldas_world_pm_geo_1day[row_world_ease_25km_from_geo_25km_ind[x], :], axis=0)
+              for x in range(len(lat_world_ease_25km))])
+        sm_gldas_pm_ease_1day = np.array\
+            ([np.nanmean(sm_gldas_pm_ease_1day[:, col_world_ease_25km_from_geo_25km_ind[y]], axis=1)
+              for y in range(len(lon_world_ease_25km))])
+        sm_gldas_pm_ease_1day = np.fliplr(np.rot90(sm_gldas_pm_ease_1day, 3))
 
 
         # Final output
@@ -355,7 +351,8 @@ for iyr in range(1, len(daysofyear)-1):
 
         del(lst_gldas_geo_3day, lst_gldas_utc_am_geo_1day, lst_gldas_utc_pm_geo_1day,
              sm_gldas_geo_3day, sm_gldas_utc_am_geo_1day, sm_gldas_utc_pm_geo_1day)
-        del(lst_gldas_world_am_geo_1day, lst_gldas_world_pm_geo_1day, sm_gldas_world_am_geo_1day)
+        del(lst_gldas_world_am_geo_1day, lst_gldas_world_pm_geo_1day,
+            sm_gldas_world_am_geo_1day, sm_gldas_world_pm_geo_1day)
 
         print(gldas_files_yearly[(idc+1) * 8].split('.')[1])
 
@@ -376,153 +373,94 @@ for iyr in range(1, len(daysofyear)-1):
 print('Section 2 is completed')
 
 
-
-
-# ########################################################################################################################
-# # 3. Extract data of the correct UTC time files for different locations in the world and joint
-# # 3.1 Extract the 3-hour GLDAS data from different UTC time zones and rebind the new data
-#
-#
-#
-# # LST
-# gldas_mat_init = np.empty([matsize_gldas_geo_1day[0], matsize_gldas_geo_1day[1], len(gldas_files)//8], dtype='float32')
-# gldas_mat_init[:] = np.nan
-# lst_gldas_utc_am_geo = np.copy(gldas_mat_init)
-# lst_gldas_utc_pm_geo = np.copy(gldas_mat_init)
-# sm_gldas_utc_am_geo = np.copy(gldas_mat_init)
-# sm_gldas_utc_pm_geo = np.copy(gldas_mat_init)
-# del(gldas_mat_init)
-#
-# for idt in range(1, len(gldas_files)//8 - 1):
-#     lst_gldas_geo_3day = np.copy(lst_gldas_geo[:, :, (idt*8-8):(idt*8+16)])
-#     lst_gldas_utc_am_geo_1day = np.copy(gldas_mat_init_geo_1day)
-#     lst_gldas_utc_pm_geo_1day = np.copy(gldas_mat_init_geo_1day)
-#     sm_gldas_geo_3day = np.copy(sm_gldas_geo[:, :, (idt*8-8):(idt*8+16)])
-#     sm_gldas_utc_am_geo_1day = np.copy(gldas_mat_init_geo_1day)
-#     sm_gldas_utc_pm_geo_1day = np.copy(gldas_mat_init_geo_1day)
-#     for itm in range(len(ind_timezone)):
-#         lst_gldas_utc_am_geo_1day[:, row_gldas_geo_25km_tz_ind_group[itm]] = \
-#         lst_gldas_geo_3day[:, row_gldas_geo_25km_tz_ind_group[itm], (lst_am_utct_day[itm]+1)*8 + lst_am_gldas_ind[itm]//3]
-#         lst_gldas_utc_pm_geo_1day[:, row_gldas_geo_25km_tz_ind_group[itm]] = \
-#         lst_gldas_geo_3day[:, row_gldas_geo_25km_tz_ind_group[itm], (lst_pm_utct_day[itm]+1)*8 + lst_pm_gldas_ind[itm]//3]
-#     lst_gldas_utc_am_geo[:, :, idt] = lst_gldas_utc_am_geo_1day
-#     lst_gldas_utc_pm_geo[:, :, idt] = lst_gldas_utc_pm_geo_1day
-#     del(lst_gldas_geo_3day, lst_gldas_utc_am_geo_1day, lst_gldas_utc_pm_geo_1day)
-#     print(gldas_files[idt*8].split('.')[1] + '_lst')
-#
-#
-# # Save the LST GLDAS data by year
-# os.chdir(path_procdata)
-# var_name = ['lst_gldas_utc_am_geo_sub', 'lst_gldas_utc_pm_geo_sub']
-# daysofyear = daysofyear[0:1]
-#
-# for idt in range(len(daysofyear)):
-#     lst_gldas_utc_am_geo_sub = np.copy(lst_gldas_utc_am_geo[:, :, daysofyear[0:idt].sum():daysofyear[0:idt+1].sum()])
-#     lst_gldas_utc_pm_geo_sub = np.copy(lst_gldas_utc_pm_geo[:, :, daysofyear[0:idt].sum():daysofyear[0:idt + 1].sum()])
-#     with h5py.File('ds_gldas_utc_lst_geo_' + str(yearname[idt]) + '.hdf5', 'w') as f:
-#         for idv in range(len(var_name)):
-#             f.create_dataset(var_name[idv], data=eval(var_name[idv]))
-#     f.close()
-#     del(lst_gldas_utc_am_geo_sub, lst_gldas_utc_pm_geo_sub)
-#     print(yearname[idt] + '_lst')
-#
-#
-#
-# # Soil Moisture
-# gldas_mat_init = np.empty([matsize_gldas_geo_1day[0], matsize_gldas_geo_1day[1], len(gldas_files)//8], dtype='float32')
-# gldas_mat_init[:] = np.nan
-# sm_gldas_utc_am_geo = np.copy(gldas_mat_init)
-# sm_gldas_utc_pm_geo = np.copy(gldas_mat_init)
-# del(gldas_mat_init)
-#
-# for idt in range(1, len(gldas_files)//8 - 1):
-#     sm_gldas_geo_3day = np.copy(sm_gldas_geo[:, :, (idt*8-8):(idt*8+16)])
-#     sm_gldas_utc_am_geo_1day = np.copy(gldas_mat_init_geo_1day)
-#     sm_gldas_utc_pm_geo_1day = np.copy(gldas_mat_init_geo_1day)
-#     for itm in range(len(ind_timezone)):
-#         sm_gldas_utc_am_geo_1day[:, row_gldas_geo_25km_tz_ind_group[itm]] = \
-#         sm_gldas_geo_3day[:, row_gldas_geo_25km_tz_ind_group[itm], (sm_am_utct_day[itm]+1)*8 + sm_am_gldas_ind[itm]//3]
-#         sm_gldas_utc_pm_geo_1day[:, row_gldas_geo_25km_tz_ind_group[itm]] = \
-#         sm_gldas_geo_3day[:, row_gldas_geo_25km_tz_ind_group[itm], (sm_pm_utct_day[itm]+1)*8 + sm_pm_gldas_ind[itm]//3]
-#     sm_gldas_utc_am_geo[:, :, idt] = sm_gldas_utc_am_geo_1day
-#     sm_gldas_utc_pm_geo[:, :, idt] = sm_gldas_utc_pm_geo_1day
-#     del(sm_gldas_geo_3day, sm_gldas_utc_am_geo_1day, sm_gldas_utc_pm_geo_1day)
-#     print(gldas_files[idt*8].split('.')[1] + '_sm')
-
-# # Save the SM GLDAS data by year
-# os.chdir(path_procdata)
-# var_name = ['sm_gldas_utc_am_geo_sub', 'sm_gldas_utc_pm_geo_sub']
-# daysofyear = daysofyear[0:1]
-#
-# for idt in range(len(daysofyear)):
-#     sm_gldas_utc_am_geo_sub = np.copy(sm_gldas_utc_am_geo[:, :, daysofyear[0:idt].sum():daysofyear[0:idt+1].sum()])
-#     sm_gldas_utc_pm_geo_sub = np.copy(sm_gldas_utc_pm_geo[:, :, daysofyear[0:idt].sum():daysofyear[0:idt+1].sum()])
-#     with h5py.File('ds_gldas_utc_sm_geo_' + str(yearname[idt]) + '.hdf5', 'w') as f:
-#         for idv in range(len(var_name)):
-#             f.create_dataset(var_name[idv], data=eval(var_name[idv]))
-#     f.close()
-#     del(sm_gldas_utc_am_geo_sub, sm_gldas_utc_pm_geo_sub)
-#     print(yearname[idt] + '_sm')
-
-
-
 ########################################################################################################################
-# 4. Reproject extracted GLDAS LST/SM data to EASE grid projection
+# 3. Read LTDR NDVI data and reproject to 25 km EASE grid
 
-
-
-
-
-########################################################################################################################
-# 5. Read LTDR NDVI data and reproject to 25 km EASE grid
-os.chdir('/Users/binfang/Downloads/gldas/')
+os.chdir(path_ltdr)
 ltdr_files = sorted(glob.glob('*.hdf'))
 
-ltdr_ndvi = np.empty([lat_world_geo_25km.shape[1], lon_world_geo_25km.shape[1], len(ltdr_files)], dtype='float32')
-ltdr_ndvi[:] = np.nan
+matsize_gldas_ease_1day = [len(lat_world_ease_25km), len(lon_world_ease_25km)]
+gldas_mat_init_ease_1day = np.empty(matsize_gldas_ease_1day, dtype='float32')
+gldas_mat_init_ease_1day[:] = np.nan
+# date_ltdr = [ltdr_files[x].split('.')[1] for x in range(len(ltdr_files))]
 
-for idt in range(len(ltdr_files)):
-    ltdr_data = gdal.Open(ltdr_files[idt]).GetSubDatasets()
-    ltdr_ndvi_1day = gdal.Open(ltdr_data[0][0]).ReadAsArray()
-    ltdr_ndvi_1day = np.asarray(ltdr_ndvi_1day) * 0.0001
-    ltdr_ndvi_1day[np.where(ltdr_ndvi_1day <= 0)] = np.nan
+# Index the LTDR NDVI daily data for assigning to the corresponding days
+date_seq_doy_byyear = []
+for iyr in range(len(daysofyear)):
+    date_seq_doy_1y = date_seq_doy[daysofyear[0:iyr].sum() : daysofyear[0:iyr+1].sum()]
+    date_seq_doy_byyear.append(date_seq_doy_1y)
 
-
-ltdr_ndvi[:, :, idt] = ltdr_ndvi_1day
-
-
-# os.chdir('/Users/binfang/Downloads/gldas/')
-# rootgrp = Dataset('AVHRR-Land_v005_AVH13C1_NOAA-11_19940928_c20170616224516.nc', mode='r')
-#
-# gldas_mk = rootgrp.variables['NDVI'][:]
-# gldas_mk = np.ma.getdata(np.squeeze((gldas_mk)))
-# gldas_mk[np.where(gldas_mk <= 0)] = np.nan
-# rootgrp.close()
-
-
+date_ltdr_files = []
+for iyr in range(len(daysofyear)):
+    date_ltdr_files_byyear = []
+    for idt in range(daysofyear[iyr]):
+        date_ltdr_files_byyear_1day = [ltdr_files.index(i) for i in ltdr_files if 'A' + date_seq_doy_byyear[iyr][idt] in i]
+        date_ltdr_files_byyear.append(np.array(date_ltdr_files_byyear_1day))
+    date_ltdr_files.append(date_ltdr_files_byyear)
+    print(iyr)
+date_ltdr_files = np.array(date_ltdr_files)
 
 
-########################################################################################################################
+for iyr in range(len(daysofyear)):
 
-# * Check the completeness of downloaded files
-os.chdir('/Volumes/SBac/Dataset/GLDAS')
-files = sorted(glob.glob('*.nc4'))
-# date_seq_late = date_seq[6939:]
-files_group = []
-for idt in range(13879):
-    # files_group_1day = [files.index(i) for i in files if 'A' + date_seq_late[idt] in i]
-    files_group_1day = [files.index(i) for i in files if 'A' + date_seq[idt] in i]
-    files_group.append(files_group_1day)
-    print(idt)
+    os.chdir(path_ltdr)
 
-file_miss = []
-for idt in range(len(files_group)):
-    if len(files_group[idt]) != 8:
-        file_miss.append(date_seq[idt])
-        print(date_seq[idt])
-        # file_miss.append(date_seq_late[idt])
-        # print(date_seq_late[idt])
-        print(len(files_group[idt]))
-    else:
-        pass
+    # Create initial empty matrices for yearly GLDAS LST/SM final output data
+    matsize_ltdr = [matsize_gldas_ease_1day[0], matsize_gldas_ease_1day[1], (daysofyear[iyr])]
+    ltdr_ndvi_ease = np.empty(matsize_ltdr, dtype='float32')
+    ltdr_ndvi_ease[:] = np.nan
+
+    # 3.1 Extract 5 km LTDR NDVI daily data
+    for idt in range(daysofyear[iyr]):
+        if len(date_ltdr_files[iyr][idt]) != 0:
+            ltdr_data = gdal.Open(ltdr_files[date_ltdr_files[iyr][idt].item()]).GetSubDatasets()
+            ltdr_ndvi_geo_1day = gdal.Open(ltdr_data[0][0]).ReadAsArray()
+            ltdr_ndvi_geo_1day = np.asarray(ltdr_ndvi_geo_1day) * 0.0001
+            ltdr_ndvi_geo_1day[np.where(ltdr_ndvi_geo_1day <= 0)] = np.nan
+
+            # 3.2 Reproject to 25 km EASE grid projection
+            ltdr_ndvi_ease_1day = np.copy(gldas_mat_init_ease_1day)
+
+            ltdr_ndvi_ease_1day = np.array \
+                ([np.nanmean(ltdr_ndvi_geo_1day[row_world_ease_25km_from_geo_5km_ind[x], :], axis=0)
+                  for x in range(len(lat_world_ease_25km))])
+            ltdr_ndvi_ease_1day = np.array \
+                ([np.nanmean(ltdr_ndvi_ease_1day[:, col_world_ease_25km_from_geo_5km_ind[y]], axis=1)
+                  for y in range(len(lon_world_ease_25km))])
+            ltdr_ndvi_ease_1day = np.fliplr(np.rot90(ltdr_ndvi_ease_1day, 3))
+            ltdr_ndvi_ease_1day = ltdr_ndvi_ease_1day * lmask_ease_25km
+
+            ltdr_ndvi_ease[:, :, idt] = ltdr_ndvi_ease_1day
+            del(ltdr_data, ltdr_ndvi_geo_1day, ltdr_ndvi_ease_1day)
+
+            print(date_seq_doy_byyear[iyr][idt])
+
+        else:
+            pass
+
+
+    # 2.5 Save GLDAS variables by year
+    os.chdir(path_procdata)
+    var_name = ['ltdr_ndvi_ease' + str(yearname[iyr])]
+    data_name = ['ltdr_ndvi_ease']
+
+    with h5py.File('ds_ltdr_ease_' + str(yearname[iyr]) + '.hdf5', 'w') as f:
+        for idv in range(len(var_name)):
+            f.create_dataset(var_name[idv], data=eval(data_name[idv]))
+    f.close()
+
+    del(ltdr_ndvi_ease, matsize_ltdr)
+
+print('Section 3 is completed')
+
+
+
+
+
+
+
+
+
+#########################################################################################################################
+
 

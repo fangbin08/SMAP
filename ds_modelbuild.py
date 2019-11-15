@@ -85,8 +85,6 @@ varname_list = ['row_world_ease_1km_from_25km_ind', 'col_world_ease_1km_from_25k
                     'lat_world_ease_25km', 'lon_world_ease_25km', 'lat_world_ease_9km', 'lon_world_ease_9km',
                     'lat_world_ease_1km', 'lon_world_ease_1km', 'lat_world_geo_1km', 'lon_world_geo_1km',
                     'lat_world_geo_5km', 'lon_world_geo_5km', 'lat_world_geo_25km', 'lon_world_geo_25km']
-# varname_list = list(f.keys())
-# varname_import = [varname_list[x] for x in varname_list]
 
 for x in range(len(varname_list)):
     var_obj = f[varname_list[x]][()]
@@ -388,13 +386,85 @@ for iyr in range(len(daysofyear)):
     del(lst_gldas_geo, sm_gldas_geo, gldas_files_yearly, matsize_gldas, lst_gldas_am_ease, lst_gldas_pm_ease,
         sm_gldas_am_ease, sm_gldas_pm_ease)
 
+
+
+# 2.6 Calculate daily LST difference corresponding to SMAP SM of AM/PM overpass
+os.chdir(path_procdata)
+gldas_files = sorted(glob.glob('*gldas_ease*'))
+
+for ife in [37]:#range(len(gldas_files)):
+
+    if ife != len(gldas_files)-1:
+        fe_1 = h5py.File(gldas_files[ife], "r") # Read the current yearly GLDAS file
+        varname_list_fe1 = list(fe_1.keys())
+        fe_2 = h5py.File(gldas_files[ife+1], "r") # Read the next yearly GLDAS file
+        varname_list_fe2 = list(fe_2.keys())
+
+        for x in range(0, 4):
+            var_obj_1 = fe_1[varname_list_fe1[x]][()] # Extract the current yearly GLDAS LST
+            exec(varname_list_fe1[x] + '= var_obj_1')
+            var_obj_2 = fe_2[varname_list_fe2[x]][:, :, 0] # Extract the first day of next yearly GLDAS LST
+            exec(varname_list_fe2[x] + '= var_obj_2')
+            del (var_obj_1, var_obj_2)
+        fe_1.close()
+        fe_2.close()
+
+        # lst_gldas_am exlude the first day of the current year and concatenate the first day of next year
+        lst_gldas_am_rebind = \
+            np.concatenate((eval(varname_list_fe1[0])[:, :, 1:], np.expand_dims(eval(varname_list_fe2[0]), axis=2)), axis=2)
+
+    else: # For the last year of 2018
+        fe_1 = h5py.File(gldas_files[ife], "r") # Read the current yearly GLDAS file
+        varname_list_fe1 = list(fe_1.keys())
+
+        for x in range(0, 4):
+            var_obj_1 = fe_1[varname_list_fe1[x]][()] # Extract the current yearly GLDAS LST
+            exec(varname_list_fe1[x] + '= var_obj_1')
+            del (var_obj_1)
+        fe_1.close()
+
+        # lst_gldas_am exlude the first day of the current year and concatenate the first day of next year
+        lst_gldas_am_rebind = \
+            np.concatenate((eval(varname_list_fe1[0])[:, :, 1:], np.expand_dims(gldas_mat_init_ease_1day, axis=2)), axis=2)
+
+
+    # LST difference corresponding to SMAP SM of AM overpass (lst_gldas_pm - lst_gldas_am of the same day)
+    lst_gldas_am_delta = np.absolute(np.subtract(eval(varname_list_fe1[1]), eval(varname_list_fe1[0])))
+    # LST difference corresponding to SMAP SM of PM overpass (lst_gldas_pm - lst_gldas_am of the next day)
+    lst_gldas_pm_delta = np.absolute(np.subtract(eval(varname_list_fe1[1]), lst_gldas_am_rebind))
+
+    # Copy GLDAS SM of AM/PM
+    sm_gldas_am = np.copy(eval(varname_list_fe1[2]))
+    sm_gldas_pm = np.copy(eval(varname_list_fe1[3]))
+
+    # Save GLDAS LST difference by year
+    var_name = ['lst_gldas_am_delta_' + str(yearname[ife]), 'lst_gldas_pm_delta_' + str(yearname[ife]),
+                'sm_gldas_am_' + str(yearname[ife]), 'sm_gldas_pm_' + str(yearname[ife])]
+    data_name = ['lst_gldas_am_delta', 'lst_gldas_pm_delta', 'sm_gldas_am', 'sm_gldas_pm']
+
+    with h5py.File('ds_gldas_' + str(yearname[ife]) + '.hdf5', 'w') as f:
+        for idv in range(len(var_name)):
+            f.create_dataset(var_name[idv], data=eval(data_name[idv]))
+    f.close()
+
+    print(yearname[ife])
+
+    if ife != len(gldas_files)-1:
+        for x in range(0, 4):
+            exec('del(' + varname_list_fe1[x] + ')')
+            exec('del(' + varname_list_fe2[x] + ')')
+        del(lst_gldas_am_delta, lst_gldas_am_rebind, lst_gldas_pm_delta, varname_list_fe1, varname_list_fe2, fe_1, fe_2)
+    else:
+        for x in range(0, 4):
+            exec('del(' + varname_list_fe1[x] + ')')
+        del(lst_gldas_am_delta, lst_gldas_am_rebind, lst_gldas_pm_delta, varname_list_fe1, fe_1)
+
 print('Section 2 is completed')
 
 
 ########################################################################################################################
 # 3. Read LTDR NDVI data and reproject to 25 km EASE grid projection
 
-# ltdr_folders = np.arange(yearname[0], yearname[-1]+1).astype(str)
 matsize_gldas_ease_1day = [len(lat_world_ease_25km), len(lon_world_ease_25km)]
 gldas_mat_init_ease_1day = np.empty(matsize_gldas_ease_1day, dtype='float32')
 gldas_mat_init_ease_1day[:] = np.nan

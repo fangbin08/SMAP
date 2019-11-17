@@ -29,3 +29,14 @@ for idt in range(len(files_group)):
         print(len(files_group[idt]))
     else:
         pass
+
+    
+# Find the indices of each month in the list of days between 1981 - 2018    
+month_num = np.arange(1, 13)
+month_num = [str(i).zfill(2) for i in month_num]
+date_seq_mo = [date_seq[i][4:6] for i in range(len(date_seq))] # Create a sequence containing only month names
+
+ind_month_gldas = []
+for m in range(len(month_num)):
+    ind_month_gldas_1mo = [i for i, s in enumerate(date_seq_mo) if month_num[m] in s]
+    ind_month_gldas.append(ind_month_gldas_1mo)

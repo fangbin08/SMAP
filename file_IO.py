@@ -40,3 +40,6 @@ ind_month_gldas = []
 for m in range(len(month_num)):
     ind_month_gldas_1mo = [i for i, s in enumerate(date_seq_mo) if month_num[m] in s]
     ind_month_gldas.append(ind_month_gldas_1mo)
+
+    
+ 

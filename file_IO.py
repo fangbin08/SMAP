@@ -41,5 +41,11 @@ for m in range(len(month_num)):
     ind_month_gldas_1mo = [i for i, s in enumerate(date_seq_mo) if month_num[m] in s]
     ind_month_gldas.append(ind_month_gldas_1mo)
 
+# Initialize empty matrices
+# lst_gldas_am_delta_all = np.empty((len(row_lmask_ease_25km_ind), 0), float).astype('float32')
+# lst_gldas_pm_delta_all = np.empty((len(row_lmask_ease_25km_ind), 0), float).astype('float32')
+# sm_gldas_am_all = np.empty((len(row_lmask_ease_25km_ind), 0), float).astype('float32')
+# sm_gldas_pm_all = np.empty((len(row_lmask_ease_25km_ind), 0), float).astype('float32')
+# ltdr_ndvi_all = np.empty((len(row_lmask_ease_25km_ind), 0), float).astype('float32')
     
- 
+    

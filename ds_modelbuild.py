@@ -5,6 +5,7 @@ import h5py
 import math
 import statsmodels.api as sm
 from netCDF4 import Dataset
+import calendar
 import datetime
 import glob
 import gdal
@@ -66,13 +67,13 @@ def geo_coord_gen(lat_geo_extent_max, lat_geo_extent_min, lon_geo_extent_max, lo
 # Path of current workspace
 path_workspace = '/Users/binfang/Documents/SMAP_CONUS/codes_py'
 # Path of source GLDAS data
-path_gldas = '/Volumes/My Passport/SMAP_Project/Datasets/GLDAS'
+path_gldas = '/Volumes/MyPassport/SMAP_Project/Datasets/GLDAS'
 # Path of source LTDR NDVI data
-path_ltdr = '/Volumes/My Passport/SMAP_Project/Datasets/LTDR/Ver5'
+path_ltdr = '/Volumes/MyPassport/SMAP_Project/Datasets/LTDR/Ver5'
 # Path of processed data
-path_procdata = '/Volumes/My Passport/SMAP_Project/Datasets/processed_data'
+path_procdata = '/Volumes/MyPassport/SMAP_Project/Datasets/processed_data'
 # Path of Land mask
-path_lmask = '/Volumes/My Passport/SMAP_Project/Datasets/Lmask'
+path_lmask = '/Volumes/MyPassport/SMAP_Project/Datasets/Lmask'
 
 # Load in variables
 os.chdir(path_workspace)
@@ -147,6 +148,8 @@ for i in range(delta_date.days + 1):
 # Count how many days for a specific year
 yearname = np.linspace(1981, 2018, 38, dtype='int')
 monthname = np.linspace(1, 12, 12, dtype='int')
+monthnum = np.arange(1, 13)
+monthnum = [str(i).zfill(2) for i in monthnum]
 
 daysofyear = []
 for idt in range(len(yearname)):
@@ -157,6 +160,7 @@ for idt in range(len(yearname)):
     # print(delta_1y.days + 1)
 
 daysofyear = np.asarray(daysofyear)
+
 
 ########################################################################################################################
 
@@ -217,7 +221,6 @@ gldas_mat_init_ease_1day[:] = np.nan
 
 
 for iyr in range(len(daysofyear)):
-
 
     # Create initial empty matrices for yearly GLDAS LST/SM final output data
     matsize_gldas = [matsize_gldas_geo_1day[0], matsize_gldas_geo_1day[1], (daysofyear[iyr]+2)*8]
@@ -284,9 +287,7 @@ for iyr in range(len(daysofyear)):
     lst_gldas_pm_ease = np.copy(gldas_ease_mat_init)
     sm_gldas_am_ease = np.copy(gldas_ease_mat_init)
     sm_gldas_pm_ease = np.copy(gldas_ease_mat_init)
-
     del(gldas_ease_mat_init)
-
 
     for idc in range(daysofyear[iyr]):
 
@@ -392,7 +393,7 @@ for iyr in range(len(daysofyear)):
 os.chdir(path_procdata)
 gldas_files = sorted(glob.glob('*gldas_ease*'))
 
-for ife in [37]:#range(len(gldas_files)):
+for ife in range(len(gldas_files)):
 
     if ife != len(gldas_files)-1:
         fe_1 = h5py.File(gldas_files[ife], "r") # Read the current yearly GLDAS file
@@ -525,4 +526,148 @@ print('Section 3 is completed')
 
 #########################################################################################################################
 
+# 4. Build the SM - delta LST by using linear regression model
+
+# Find the indices of land pixels by the 25-km resolution land-ocean mask
+[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind] = np.where(~np.isnan(lmask_ease_25km))
+
+# Find the indices of each month in the list of days between 1981 - 2018
+nlpyear = 1999
+lpyear = 2000
+daysofmonth_nlp = np.array([calendar.monthrange(nlpyear, x)[1] for x in range(1, len(monthname)+1)])
+ind_nlp = [np.arange(daysofmonth_nlp[0:x].sum(), daysofmonth_nlp[0:x+1].sum()) for x in range(0, len(monthname))]
+daysofmonth_lp = np.array([calendar.monthrange(lpyear, x)[1] for x in range(1, len(monthname)+1)])
+ind_lp = [np.arange(daysofmonth_lp[0:x].sum(), daysofmonth_lp[0:x+1].sum()) for x in range(0, len(monthname))]
+ind_iflpr = np.array([int(calendar.isleap(yearname[x])) for x in range(len(yearname))]) # Find out leap years
+# Generate a sequence of the days of months for all years
+daysofmonth_seq = np.array([np.tile(daysofmonth_nlp[x], len(yearname)) for x in range(0, len(monthname))])
+daysofmonth_seq[1, :] = daysofmonth_seq[1, :] + ind_iflpr # Add leap days to February
+daysofmonth_sum = np.sum(daysofmonth_seq, axis=1)
+
+
+# 4.1 Extract GLDAS/LTDR data from each month and do regresson modeling
+os.chdir(path_procdata)
+gldas_model_files = sorted(glob.glob('*ds_gldas_[0-9]*'))
+ltdr_model_files = sorted(glob.glob('*ds_ltdr_ease_[0-9]*'))
+
+# Loop all years for each month to build the model
+for imo in range(len(monthname)):
+
+    # Initialize empty matrices
+    lst_gldas_am_delta_all = np.empty((len(row_lmask_ease_25km_ind), daysofmonth_sum[imo])).astype('float32')
+    lst_gldas_am_delta_all[:] = np.nan
+    lst_gldas_pm_delta_all = np.empty((len(row_lmask_ease_25km_ind), daysofmonth_sum[imo])).astype('float32')
+    lst_gldas_pm_delta_all[:] = np.nan
+    sm_gldas_am_all = np.empty((len(row_lmask_ease_25km_ind), daysofmonth_sum[imo])).astype('float32')
+    sm_gldas_am_all[:] = np.nan
+    sm_gldas_pm_all = np.empty((len(row_lmask_ease_25km_ind), daysofmonth_sum[imo])).astype('float32')
+    sm_gldas_pm_all[:] = np.nan
+    ltdr_ndvi_all = np.empty((len(row_lmask_ease_25km_ind), daysofmonth_sum[imo])).astype('float32')
+    ltdr_ndvi_all[:] = np.nan
+
+    for iyr in range(len(gldas_model_files)):
+
+        # Loop read yearly GLDAS/LTDR data and concatenate (land pixels only)
+        fe_gldas = h5py.File(gldas_model_files[iyr], "r")
+        varname_list_gldas = list(fe_gldas.keys())
+
+        fe_ndvi = h5py.File(ltdr_model_files[iyr], "r")
+        varname_list_ndvi = list(fe_ndvi.keys())
+
+        if calendar.isleap(yearname[iyr]) != True:
+            lst_gldas_am_delta = fe_gldas[varname_list_gldas[0]][:, :, ind_nlp[imo]]
+            lst_gldas_pm_delta = fe_gldas[varname_list_gldas[1]][:, :, ind_nlp[imo]]
+            sm_gldas_am = fe_gldas[varname_list_gldas[2]][:, :, ind_nlp[imo]]
+            sm_gldas_pm = fe_gldas[varname_list_gldas[3]][:, :, ind_nlp[imo]]
+            ltdr_ndvi = fe_ndvi[varname_list_ndvi[0]][:, :, ind_nlp[imo]]
+        else:
+            lst_gldas_am_delta = fe_gldas[varname_list_gldas[0]][:, :, ind_lp[imo]]
+            lst_gldas_pm_delta = fe_gldas[varname_list_gldas[1]][:, :, ind_lp[imo]]
+            sm_gldas_am = fe_gldas[varname_list_gldas[2]][:, :, ind_lp[imo]]
+            sm_gldas_pm = fe_gldas[varname_list_gldas[3]][:, :, ind_lp[imo]]
+            ltdr_ndvi = fe_ndvi[varname_list_ndvi[0]][:, :, ind_lp[imo]]
+
+        lst_gldas_am_delta = lst_gldas_am_delta[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind, :]
+        lst_gldas_pm_delta = lst_gldas_pm_delta[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind, :]
+        sm_gldas_am = sm_gldas_am[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind, :]
+        sm_gldas_pm = sm_gldas_pm[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind, :]
+        ltdr_ndvi = ltdr_ndvi[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind, :]
+
+        # Write the extracted yearly matrices to all-year matrices
+        lst_gldas_am_delta_all[:, daysofmonth_seq[imo, 0:iyr].sum() : daysofmonth_seq[imo, 0:iyr+1].sum()] = lst_gldas_am_delta
+        lst_gldas_pm_delta_all[:, daysofmonth_seq[imo, 0:iyr].sum() : daysofmonth_seq[imo, 0:iyr+1].sum()] = lst_gldas_pm_delta
+        sm_gldas_am_all[:, daysofmonth_seq[imo, 0:iyr].sum() : daysofmonth_seq[imo, 0:iyr+1].sum()] = sm_gldas_am
+        sm_gldas_pm_all[:, daysofmonth_seq[imo, 0:iyr].sum() : daysofmonth_seq[imo, 0:iyr+1].sum()] = sm_gldas_pm
+        ltdr_ndvi_all[:, daysofmonth_seq[imo, 0:iyr].sum(): daysofmonth_seq[imo, 0:iyr + 1].sum()] = ltdr_ndvi
+
+        print(str(yearname[iyr]) + '-' + monthnum[imo])
+
+        fe_gldas.close()
+        fe_ndvi.close()
+        del(lst_gldas_am_delta, lst_gldas_pm_delta, sm_gldas_am, sm_gldas_pm, ltdr_ndvi, fe_gldas, fe_ndvi,
+            varname_list_gldas, varname_list_ndvi)
+
+    # 4.2 Save the modeling data by month
+
+    var_name = ['lst_gldas_am_delta_all_' + monthnum[imo], 'lst_gldas_pm_delta_all_' + monthnum[imo],
+                'sm_gldas_am_all_' + monthnum[imo], 'sm_gldas_pm_all_' + monthnum[imo], 'ltdr_ndvi_all_' + monthnum[imo]]
+    data_name = ['lst_gldas_am_delta_all', 'lst_gldas_pm_delta_all', 'sm_gldas_am_all', 'sm_gldas_pm_all', 'ltdr_ndvi_all']
+
+    with h5py.File('ds_model_' + monthnum[imo] + '.hdf5', 'w') as f:
+        for idv in range(len(var_name)):
+            f.create_dataset(var_name[idv], data=eval(data_name[idv]))
+    f.close()
+
+    del(lst_gldas_am_delta_all, lst_gldas_pm_delta_all, sm_gldas_am_all, sm_gldas_pm_all, ltdr_ndvi_all)
+    print(monthnum[imo] + ' is completed')
+
+
+
+# 4.3 Build linear regression model between SM and delta LST for each month
+
+os.chdir(path_procdata)
+ds_model_files = sorted(glob.glob('*ds_model_[0-9]*'))
+ndvi_class = np.linspace(0, 1, 11)
+
+for imo in range(1, len(monthname)):
+
+    fe_model = h5py.File(ds_model_files[imo], "r")
+    varname_list_model = list(fe_model.keys())
+    lst_gldas_am_delta = fe_model[varname_list_model[0]][()]
+    lst_gldas_pm_delta = fe_model[varname_list[1]][()]
+    ltdr_ndvi = fe_model[varname_list_model[2]][()]
+    sm_gldas_am = fe_model[varname_list_model[3]][()]
+    sm_gldas_pm = fe_model[varname_list[4]][()]
+    fe_model.close()
+
+    # Find the indices for each NDVI class through each land pixel
+    for ipx in range(len(ltdr_ndvi)):
+        ind_mat = [np.squeeze(np.array(np.where((ltdr_ndvi[ipx, :] >= ndvi_class[x]) & (ltdr_ndvi[x, :] < ndvi_class[x + 1]))))
+                            for x in range(len(ndvi_class))]
+
+
+    # ind_ndvicl = []
+    # for icl in range(10):
+    #     ind_mat = [np.squeeze(np.array(np.where((ltdr_ndvi[x, :] >= ndvi_class[icl]) & (ltdr_ndvi[x, :] < ndvi_class[icl+1]))))
+    #                         for x in range(len(ltdr_ndvi))]
+    #     # ind_ndvicl[:, 0] = np.array(ind_mat)
+    #     ind_ndvicl.append(ind_mat)
+    #     print(icl)
+    #     del(ind_mat)
+
+
+
+
+
+
+
+
+
+
+
+
+# gldas_mat_init_ease_1day
+# mat_test = np.copy(gldas_mat_init_ease_1day)
+# mat_test[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind] = z[:, 0]
+# plt.scatter(sm_gldas_am[:, 0], lst_gldas_am_delta[:, 0], s=10)
 

@@ -9,6 +9,8 @@ import calendar
 import datetime
 import glob
 import gdal
+from sklearn import linear_model
+from sklearn.metrics import mean_squared_error, r2_score
 # Ignore runtime warning
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
@@ -48,7 +50,7 @@ def gldas_filefinder(var_name_utct_ind, timestamp_gldas):
 
     return var_name_gldas_ind
 
-#########################################################################################
+##############################################################################################################
 # (Function 3) Generate lat/lon tables of Geographic projection in world/CONUS
 
 def geo_coord_gen(lat_geo_extent_max, lat_geo_extent_min, lon_geo_extent_max, lon_geo_extent_min, cellsize):
@@ -60,6 +62,31 @@ def geo_coord_gen(lat_geo_extent_max, lat_geo_extent_min, lon_geo_extent_max, lo
     lon_geo_output = np.round(lon_geo_output, decimals=3)
 
     return lat_geo_output, lon_geo_output
+
+##############################################################################################################
+# (Function 4) Define a function to output coefficient and intercept of linear regression fit
+
+def reg_proc(x_arr, y_arr):
+    x_arr = np.atleast_1d(x_arr)
+    y_arr = np.atleast_1d(y_arr)
+    mask = ~np.isnan(x_arr) & ~np.isnan(y_arr)
+    x_arr = x_arr[mask].reshape(-1, 1)
+    y_arr = y_arr[mask].reshape(-1, 1)
+    if len(x_arr) > 8 and len(x_arr) == len(y_arr):
+        regr.fit(x_arr, y_arr)
+        y_pred = regr.predict(x_arr)
+        coef = regr.coef_.item()
+        intc = regr.intercept_.item()
+        r2 = r2_score(y_arr, y_pred)
+        rmse = np.sqrt(mean_squared_error(y_arr, y_pred))
+    else:
+        coef = np.nan
+        intc = np.nan
+        r2 = np.nan
+        rmse = np.nan
+
+    return coef, intc, r2, rmse
+
 
 ########################################################################################################################
 # 0. Input variables
@@ -627,33 +654,80 @@ for imo in range(len(monthname)):
 
 os.chdir(path_procdata)
 ds_model_files = sorted(glob.glob('*ds_model_[0-9]*'))
+
+# Find the indices of land pixels by the 25-km resolution land-ocean mask
+[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind] = np.where(~np.isnan(lmask_ease_25km))
+
+# The 20 numbers are linear regression model coefficients for 10 NDVI classes
+model_mat_initial = np.empty([len(row_lmask_ease_25km_ind), 20], dtype='float32')
+model_mat_initial[:] = np.nan
+regr = linear_model.LinearRegression()
 ndvi_class = np.linspace(0, 1, 11)
 
 for imo in range(1, len(monthname)):
 
+    coef_mat_am_output = np.copy(model_mat_initial)
+    coef_mat_pm_output = np.copy(model_mat_initial)
+    metric_mat_am_output = np.copy(model_mat_initial)
+    metric_mat_pm_output = np.copy(model_mat_initial)
+
     fe_model = h5py.File(ds_model_files[imo], "r")
     varname_list_model = list(fe_model.keys())
     lst_gldas_am_delta = fe_model[varname_list_model[0]][()]
-    lst_gldas_pm_delta = fe_model[varname_list[1]][()]
+    lst_gldas_pm_delta = fe_model[varname_list_model[1]][()]
     ltdr_ndvi = fe_model[varname_list_model[2]][()]
     sm_gldas_am = fe_model[varname_list_model[3]][()]
-    sm_gldas_pm = fe_model[varname_list[4]][()]
+    sm_gldas_pm = fe_model[varname_list_model[4]][()]
     fe_model.close()
 
-    # Find the indices for each NDVI class through each land pixel
+
     for ipx in range(len(ltdr_ndvi)):
-        ind_mat = [np.squeeze(np.array(np.where((ltdr_ndvi[ipx, :] >= ndvi_class[x]) & (ltdr_ndvi[x, :] < ndvi_class[x + 1]))))
-                            for x in range(len(ndvi_class))]
+        # Find the indices for each NDVI class through each land pixel
+        ind_ndvi_px = [np.squeeze(np.array(np.where((ltdr_ndvi[ipx, :] >= ndvi_class[x]) & (ltdr_ndvi[ipx, :] < ndvi_class[x + 1]))))
+                            for x in range(len(ndvi_class)-1)]
+
+        # Output Order: coefficient, interceptor, r2, rmse
+        # Fit AM data
+        regr_mat_am = np.array([reg_proc(lst_gldas_am_delta[ipx, ind_ndvi_px[y]], sm_gldas_am[ipx, ind_ndvi_px[y]])
+                                  for y in range(len(ndvi_class)-1)])
+        regr_mat_am = np.transpose(regr_mat_am)
+        coef_mat_am = regr_mat_am[:2, :].flatten('F')
+        metric_mat_am = regr_mat_am[2:, :].flatten('F')
+        coef_mat_am_output[ipx, :] = coef_mat_am
+        metric_mat_am_output[ipx, :] = metric_mat_am
+
+        # Fit PM data
+        regr_mat_pm = np.array([reg_proc(lst_gldas_pm_delta[ipx, ind_ndvi_px[y]], sm_gldas_pm[ipx, ind_ndvi_px[y]])
+                                  for y in range(len(ndvi_class)-1)])
+        regr_mat_pm = np.transpose(regr_mat_pm)
+        coef_mat_pm = regr_mat_pm[:2, :].flatten('F')
+        metric_mat_pm = regr_mat_pm[2:, :].flatten('F')
+        coef_mat_pm_output[ipx, :] = coef_mat_pm
+        metric_mat_pm_output[ipx, :] = metric_mat_pm
+
+        print(monthnum[imo] + '-' + str(ipx))
+        del(ind_ndvi_px, regr_mat_am, coef_mat_am, metric_mat_am, regr_mat_pm, coef_mat_pm, metric_mat_pm)
 
 
-    # ind_ndvicl = []
-    # for icl in range(10):
-    #     ind_mat = [np.squeeze(np.array(np.where((ltdr_ndvi[x, :] >= ndvi_class[icl]) & (ltdr_ndvi[x, :] < ndvi_class[icl+1]))))
-    #                         for x in range(len(ltdr_ndvi))]
-    #     # ind_ndvicl[:, 0] = np.array(ind_mat)
-    #     ind_ndvicl.append(ind_mat)
-    #     print(icl)
-    #     del(ind_mat)
+    # 4.4 Save the regression coefficients and correlation metrics by month
+
+    var_name = ['coef_mat_am_' + monthnum[imo], 'metric_mat_am_' + monthnum[imo],
+                'coef_mat_pm_' + monthnum[imo], 'metric_mat_pm_' + monthnum[imo]]
+    data_name = ['coef_mat_am_output', 'metric_mat_am_output', 'coef_mat_pm_output', 'metric_mat_pm_output']
+
+    with h5py.File('ds_model_coef_' + monthnum[imo] + '.hdf5', 'w') as f:
+        for idv in range(len(var_name)):
+            f.create_dataset(var_name[idv], data=eval(data_name[idv]))
+    f.close()
+
+    del(coef_mat_am_output, metric_mat_am_output, coef_mat_pm_output, metric_mat_pm_output, fe_model, varname_list_model,
+        lst_gldas_am_delta, lst_gldas_pm_delta, sm_gldas_am, sm_gldas_pm, ltdr_ndvi)
+    print(monthnum[imo] + ' is completed')
+
+
+
+
+
 
 
 

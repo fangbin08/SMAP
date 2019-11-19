@@ -724,24 +724,3 @@ for imo in range(1, len(monthname)):
         lst_gldas_am_delta, lst_gldas_pm_delta, sm_gldas_am, sm_gldas_pm, ltdr_ndvi)
     print(monthnum[imo] + ' is completed')
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# gldas_mat_init_ease_1day
-# mat_test = np.copy(gldas_mat_init_ease_1day)
-# mat_test[row_lmask_ease_25km_ind, col_lmask_ease_25km_ind] = z[:, 0]
-# plt.scatter(sm_gldas_am[:, 0], lst_gldas_am_delta[:, 0], s=10)
-

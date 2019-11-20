@@ -2,8 +2,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import h5py
-import math
-import statsmodels.api as sm
 from netCDF4 import Dataset
 import calendar
 import datetime
@@ -664,7 +662,7 @@ model_mat_initial[:] = np.nan
 regr = linear_model.LinearRegression()
 ndvi_class = np.linspace(0, 1, 11)
 
-for imo in range(1, len(monthname)):
+for imo in range(len(monthname)):#range(len(monthname)):
 
     coef_mat_am_output = np.copy(model_mat_initial)
     coef_mat_pm_output = np.copy(model_mat_initial)
@@ -724,3 +722,28 @@ for imo in range(1, len(monthname)):
         lst_gldas_am_delta, lst_gldas_pm_delta, sm_gldas_am, sm_gldas_pm, ltdr_ndvi)
     print(monthnum[imo] + ' is completed')
 
+
+# 4.5 Combine the regression coefficient files together
+
+coef_files = sorted(glob.glob('*ds_model_coef_[0-9]*'))
+
+varname_list_coef_all =[]
+for imo in range(len(monthname)):
+    fe_coef = h5py.File(coef_files[imo], "r")
+    varname_list_coef = list(fe_coef.keys())
+
+    for x in range(len(varname_list_coef)):
+        var_obj = fe_coef[varname_list_coef[x]][()]
+        exec(varname_list_coef[x] + '= var_obj')
+        varname_list_coef_all.append(varname_list_coef[x])
+    fe_coef.close()
+
+
+# Save file
+var_name = varname_list_coef_all
+with h5py.File('ds_model_coef' + '.hdf5', 'w') as f:
+    for idv in range(len(var_name)):
+        f.create_dataset(var_name[idv], data=eval(var_name[idv]))
+f.close()
+
+print('Section 4 is completed')

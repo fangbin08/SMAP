@@ -11,8 +11,10 @@ import calendar
 import warnings
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
-# (Function 1) Extract data layers from MODIS HDF5 files and write to GeoTiff
-def hdf_subdataset_extraction(hdf_files, dst_dir, subdataset_id, band_n):
+# (Function 1) Extract data layers from MODIS HDF5 files, filter low quality pixels and write to GeoTiff
+# (The function only works for MODIS LST and NDVI data sets!)
+
+def hdf_subdataset_extraction(hdf_files, path_modis_op, subdataset_id, band_n):
 
     # Open the dataset
     global band_ds
@@ -20,22 +22,47 @@ def hdf_subdataset_extraction(hdf_files, dst_dir, subdataset_id, band_n):
 
     # Loop read data of specified bands from subdataset_id
     size_1dim = gdal.Open(hdf_ds.GetSubDatasets()[0][0], gdal.GA_ReadOnly).ReadAsArray().astype(np.int16).shape
-    band_array = np.empty([size_1dim[0], size_1dim[1], len(subdataset_id)], dtype=int)
-    for idn in range(len(subdataset_id)):
-        band_ds = gdal.Open(hdf_ds.GetSubDatasets()[subdataset_id[idn]][0], gdal.GA_ReadOnly)
-        # Read into numpy array
-        band_array[:, :, idn] = band_ds.ReadAsArray().astype(np.int16)
+    band_array = np.empty([size_1dim[0], size_1dim[1], len(subdataset_id)//2])
+    for idn in range(len(subdataset_id)//2):
+        band_ds = gdal.Open(hdf_ds.GetSubDatasets()[subdataset_id[idn*2]][0], gdal.GA_ReadOnly)
+        band_ds_arr = band_ds.ReadAsArray().astype(np.float32)
+        band_ds_arr_qa = gdal.Open(hdf_ds.GetSubDatasets()[subdataset_id[idn*2+1]][0], gdal.GA_ReadOnly)
+
+        # Find if the dataset is MODIS NDVI or MODIS LST
+        if len(subdataset_id) > 2: # MODIS LST
+            band_ds_arr = band_ds_arr * 0.02
+            band_ds_arr_qa = band_ds_arr_qa.ReadAsArray().astype(np.uint8)
+            band_ds_arr_qa = band_ds_arr_qa.reshape(-1, 1)
+            band_ds_arr_qa_bin = [np.binary_repr(band_ds_arr_qa[x].item(), width=8) for x in range(len(band_ds_arr_qa))]
+            ind_qa = np.array([i for i in range(len(band_ds_arr_qa_bin)) if band_ds_arr_qa_bin[i][0] == '0'
+                               and band_ds_arr_qa_bin[i][6] == '0'])
+        else: # MODIS NDVI
+            band_ds_arr = band_ds_arr * 0.0001
+            band_ds_arr_qa = band_ds_arr_qa.ReadAsArray().astype(np.uint16)
+            band_ds_arr_qa = band_ds_arr_qa.reshape(-1, 1)
+            band_ds_arr_qa_bin = [np.binary_repr(band_ds_arr_qa[x].item(), width=16) for x in range(len(band_ds_arr_qa))]
+            ind_qa = np.array([i for i in range(len(band_ds_arr_qa_bin)) if band_ds_arr_qa_bin[i][-1] == '0'])
+
+        band_ds_arr_qa_mask = np.arange(band_ds_arr.shape[0]*band_ds_arr.shape[1])
+        band_ds_arr_qa_mask = np.isin(band_ds_arr_qa_mask, ind_qa).astype(int)
+        band_ds_arr_qa_mask = band_ds_arr_qa_mask.reshape(band_ds_arr.shape[0], band_ds_arr.shape[1])
+        band_ds_arr = band_ds_arr * band_ds_arr_qa_mask
+        band_ds_arr[np.where(band_ds_arr <= 0)] = np.nan
+
+        # Write into numpy array
+        band_array[:, :, idn] = band_ds_arr
+        del(band_ds_arr, band_ds_arr_qa, band_ds_arr_qa_bin, ind_qa, band_ds_arr_qa_mask)
 
     # Build output path
-    band_path = os.path.join(dst_dir, os.path.basename(os.path.splitext(hdf_files)[0]) + "-ctd" + ".tif")
+    band_path = os.path.join(path_modis_op, os.path.basename(os.path.splitext(hdf_files)[0]) + "-ctd" + ".tif")
     # Write raster
     out_ds = gdal.GetDriverByName('GTiff').Create(band_path, band_ds.RasterXSize, band_ds.RasterYSize, band_n, #Number of bands
-                                  gdal.GDT_Int16, ['COMPRESS=LZW', 'TILED=YES'])
+                                  gdal.GDT_Float32, ['COMPRESS=LZW', 'TILED=YES'])
     out_ds.SetGeoTransform(band_ds.GetGeoTransform())
     out_ds.SetProjection(band_ds.GetProjection())
 
     # Loop write each band to Geotiff file
-    for idb in range(len(subdataset_id)):
+    for idb in range(len(subdataset_id)//2):
         out_ds.GetRasterBand(idb+1).WriteArray(band_array[:, :, idb])
         out_ds.GetRasterBand(idb+1).SetNoDataValue(0)
     out_ds = None  #close dataset to write to disc
@@ -47,14 +74,20 @@ def hdf_subdataset_extraction(hdf_files, dst_dir, subdataset_id, band_n):
 # Specify file paths
 # Path of current workspace
 path_workspace = '/Users/binfang/Documents/SMAP_CONUS/codes_py'
-# Path of source GLDAS data
-path_modis = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS'
-# Path of source LTDR NDVI data
+# Path of source MODIS data
+path_modis = '/Users/binfang/Downloads/MODIS'
+# Path of output MODIS data
+path_modis_op = '/Users/binfang/Downloads/MODIS/Output'
+# Path of MODIS data for SM downscaling model input
+path_modis_model = '/Users/binfang/Downloads/MODIS/Model_Input'
+# Path of SMAP data
 path_smap = '/Volumes/MyPassport/SMAP_Project/NewData/SMAP'
 # Path of processed data
 path_procdata = '/Volumes/MyPassport/SMAP_Project/Datasets/processed_data'
 # Path of Land mask
 path_lmask = '/Volumes/MyPassport/SMAP_Project/Datasets/Lmask'
+lst_folder = '/MYD11A1/'
+ndvi_folder = '/MYD13A2/'
 
 # Load in variables
 os.chdir(path_workspace)
@@ -104,7 +137,7 @@ for idt in range(len(yearname)):
 daysofyear = np.asarray(daysofyear)
 
 # Find the indices of each month in the list of days between 1981 - 2018
-nlpyear = 1999 # non leap year
+nlpyear = 1999 # non-leap year
 lpyear = 2000 # leap year
 daysofmonth_nlp = np.array([calendar.monthrange(nlpyear, x)[1] for x in range(1, len(monthnum)+1)])
 ind_nlp = [np.arange(daysofmonth_nlp[0:x].sum(), daysofmonth_nlp[0:x+1].sum()) for x in range(0, len(monthnum))]
@@ -117,88 +150,180 @@ daysofmonth_seq[1, :] = daysofmonth_seq[1, :] + ind_iflpr # Add leap days to Feb
 
 
 ########################################################################################################################
-# 1. Extract data layers from MODIS HDF5 files and write to GeoTiff
+# 1. Extract, mosaic and reproject MODIS tile data to EASE grid projection at 1 km
+# 1.1 Extract data layers from MODIS HDF5 files and write to GeoTiff
 
-src_dir = '/Users/binfang/Downloads/MODIS_new/test/input'
-dst_dir = '/Users/binfang/Downloads/MODIS_new/test/output'
-subdataset_id = [0, 1, 4, 5] # n^th of Layers to be extracted. For MODIS LST data: LST_Day_1km, QC_Day, LST_Night_1km, QC_Night
-                             # The information of number of layers can be acquired by GetSubDatasets()
-band_n = 4
+# n^th of Layers to be extracted. The information of number of layers can be acquired by function GetSubDatasets()
+subdataset_id_lst = [0, 1, 4, 5]  # For MODIS LST data: extract LST_Day_1km, QC_Day, LST_Night_1km, QC_Night
+band_n_lst = 2  # For MODIS LST data: save LST_Day_1km, LST_Night_1km
+subdataset_id_ndvi = [0, 2] # For MODIS NDVI data: extract NDVI, VI Quality
+band_n_ndvi = 1 # For MODIS NDVI data: save NDVI
 
-# Set the boundary coordinates of the map to subset (CONUS)
-lat_roi_max = 53
-lat_roi_min = 25
-lon_roi_max = -67
-lon_roi_min = -125
+# Set the boundary coordinates of the map to subset (World)
+lat_roi_max = 90
+lat_roi_min = -90
+lon_roi_max = 180
+lon_roi_min = -180
 
-os.chdir(src_dir)
-hdf_files = sorted(glob.glob('*.hdf'))
+# 1.2 Process NDVI (MYD13A2) data
+modis_folders = [lst_folder, ndvi_folder]
+subdataset_id = [subdataset_id_lst, subdataset_id_ndvi]
+band_n = [band_n_lst, band_n_ndvi]
 
-for idt in range(len(hdf_files)):
-    hdf_subdataset_extraction(hdf_files[idt], dst_dir, subdataset_id, band_n)
-    print(hdf_files[idt]) # Print the file being processed
+for ifo in range(len(modis_folders)): # MODIS LST and NDVI subfolders
+    os.chdir(path_modis + modis_folders[ifo])
+    # List subfolders under root directory
+    subfolders = os.listdir()
+    subfolders = [item for item in subfolders if not item.startswith('.')] # ignore '. and ._files'
+    subfolders = sorted(subfolders)
 
+    for iyr in range(len(subfolders)):
 
-########################################################################################################################
-# 2. Group the Geotiff files by dates from their names and
-#    build virtual dataset VRT files for mosaicking MODIS geotiff files in the list
+        os.chdir(path_modis + modis_folders[ifo] + subfolders[iyr])
+        hdf_files = sorted(glob.glob('*.hdf'))
 
-os.chdir(dst_dir)
-tif_files = sorted(glob.glob('*.tif'))
-tif_files_group = []
-for idt in range(len(date_seq)):
-    tif_files_group_1day = [tif_files.index(i) for i in tif_files if 'A' + date_seq[idt] in i]
-    tif_files_group.append(tif_files_group_1day)
-
-vrt_options = gdal.BuildVRTOptions(resampleAlg='near', addAlpha=None, bandList=None)
-for idt in range(len(tif_files_group)):
-    if len(tif_files_group[idt]) != 0:
-        tif_files_toBuild = [tif_files[i] for i in tif_files_group[idt]]
-        vrt_files_name = '_'.join(tif_files[tif_files_group[idt][0]].split('.')[0:2])
-        gdal.BuildVRT('mosaic_sinu_' + vrt_files_name + '.vrt', tif_files_toBuild, options=vrt_options)
-        exec('mosaic_sinu_' + vrt_files_name + '= None')
+        for idt in range(len(hdf_files)):
+            hdf_subdataset_extraction(hdf_files[idt], path_modis_op + modis_folders[ifo] + subfolders[iyr],
+                                      subdataset_id[ifo], band_n[ifo])
+            print(hdf_files[idt]) # Print the file being processed
 
 
-########################################################################################################################
-# 3. Mosaic the list of MODIS geotiff files and reproject to lat/lon projection
+
+# 1.2 Group the Geotiff files by dates from their names and
+# build virtual dataset VRT files for mosaicking MODIS geotiff files in the list
+
+for ifo in range(len(modis_folders)): # MODIS LST and NDVI subfolders
+    os.chdir(path_modis_op + modis_folders[ifo])
+    # List subfolders under root directory
+    subfolders = os.listdir()
+    subfolders = [item for item in subfolders if not item.startswith('.')] # ignore '. and ._files'
+    subfolders = sorted(subfolders)
+
+    for iyr in range(len(subfolders)):
+
+        os.chdir(path_modis_op + modis_folders[ifo] + subfolders[iyr])
+        tif_files = sorted(glob.glob('*.tif'))
+
+        tif_files_group = []
+        for idt in range(len(date_seq)):
+            tif_files_group_1day = [tif_files.index(i) for i in tif_files if 'A' + date_seq[idt] in i]
+            tif_files_group.append(tif_files_group_1day)
+
+        vrt_options = gdal.BuildVRTOptions(resampleAlg='near', addAlpha=None, bandList=None)
+        for idt in range(len(tif_files_group)):
+            if len(tif_files_group[idt]) != 0:
+                tif_files_toBuild = [tif_files[i] for i in tif_files_group[idt]]
+                vrt_files_name = '_'.join(tif_files[tif_files_group[idt][0]].split('.')[0:2])
+                gdal.BuildVRT('mosaic_sinu_' + vrt_files_name + '.vrt', tif_files_toBuild, options=vrt_options)
+                exec('mosaic_sinu_' + vrt_files_name + '= None')
+                print('mosaic_sinu_' + vrt_files_name + '.vrt')
+            else:
+                pass
+
+
+
+# 1.3 Mosaic the list of MODIS geotiff files and reproject to lat/lon projection
 
 # Define target SRS
-dst_srs = osr.SpatialReference()
-dst_srs.ImportFromEPSG(4326) # WGS 84 projection
-dst_wkt = dst_srs.ExportToWkt()
-error_threshold = 0.1  # error threshold
-resampling = gdal.GRA_NearestNeighbour
+# dst_srs = osr.SpatialReference()
+# dst_srs.ImportFromEPSG(4326) # WGS 84 projection
+# dst_wkt = dst_srs.ExportToWkt()
+# error_threshold = 0.1  # error threshold
+# resampling = gdal.GRA_NearestNeighbour
 
-vrt_files = sorted(glob.glob('*.vrt'))
-for idt in range(len(vrt_files)):
-    # Open file
-    src_ds = gdal.Open(vrt_files[idt])
-    mos_file_name = '_'.join(os.path.splitext(vrt_files[idt])[0].split('_')[2:4])
-    # Call AutoCreateWarpedVRT() to fetch default values for target raster dimensions and geotransform
-    tmp_ds = gdal.AutoCreateWarpedVRT(src_ds, None, dst_wkt, resampling, error_threshold)
-    # Crop to CONUS extent and create the final warped raster
-    dst_ds = gdal.Translate(mos_file_name + '.tif', tmp_ds,
-                            projWin=[lon_roi_min, lat_roi_max, lon_roi_max, lat_roi_min])
-    dst_ds = None
+for ifo in range(len(modis_folders)): # MODIS LST and NDVI subfolders
 
-    print(mos_file_name)
+    os.chdir(path_modis_op + modis_folders[ifo])
+    # List subfolders under root directory
+    subfolders = os.listdir()
+    subfolders = [item for item in subfolders if not item.startswith('.')] # ignore '. and ._files'
+    subfolders = sorted(subfolders)
+
+    for iyr in range(len(subfolders)):
+
+        os.chdir(path_modis_op + modis_folders[ifo] + subfolders[iyr])
+        vrt_files = sorted(glob.glob('*.vrt'))
+
+        for idt in range(len(vrt_files)):
+
+            os.chdir(path_modis_op + modis_folders[ifo] + subfolders[iyr])
+            # Open file
+            src_ds = gdal.Open(vrt_files[idt])
+            mos_file_name = '_'.join(os.path.splitext(vrt_files[idt])[0].split('_')[2:4])
+            # Call AutoCreateWarpedVRT() to fetch default values for target raster dimensions and geotransform
+            # tmp_ds = gdal.AutoCreateWarpedVRT(src_ds, None, dst_wkt, resampling, error_threshold)
+            out_ds = gdal.Warp('', src_ds, format='MEM', outputBounds=[-180, -90, 180, 90], xRes=0.01, yRes=0.01,
+                               dstSRS='EPSG:4326', warpOptions=['SKIP_NOSOURCE=YES'], errorThreshold=0,
+                               resampleAlg=gdal.GRA_NearestNeighbour)
+
+            modis_mat = out_ds.ReadAsArray()
+            modis_mat[np.where(modis_mat <= 0)] = np.nan
+            modis_mat = np.atleast_3d(modis_mat)
+            # modis_mat = np.transpose(modis_mat, (1, 2, 0))
+
+            # Create initial EASE grid projection mat at 1 km
+            modis_mat_ease = \
+                np.empty([len(lat_world_ease_1km), len(lon_world_ease_1km), modis_mat.shape[2]], dtype='float32')
+            modis_mat_ease[:] = np.nan
+
+            for idm in range(modis_mat.shape[2]):
+                modis_mat_ease_1day = np.copy(modis_mat_ease[:, :, 0])
+                modis_mat_1day = modis_mat[:, :, idm]
+                modis_mat_ease_1day = np.array \
+                    ([np.nanmean(modis_mat_1day[row_world_ease_1km_from_geo_1km_ind[x], :], axis=0)
+                      for x in range(len(lat_world_ease_1km))])
+                modis_mat_ease_1day = np.array \
+                    ([np.nanmean(modis_mat_ease_1day[:, col_world_ease_1km_from_geo_1km_ind[y]], axis=1)
+                      for y in range(len(lon_world_ease_1km))])
+                modis_mat_ease_1day = np.fliplr(np.rot90(modis_mat_ease_1day, 3))
+                modis_mat_ease[:, :, idm] = modis_mat_ease_1day
+                del(modis_mat_ease_1day, modis_mat_1day)
+
+
+            # 1.4 Save the daily MODIS LST/NDVI data to hdf files
+            os.chdir(path_modis_model + modis_folders[ifo] + subfolders[iyr])
+            if modis_mat_ease.shape[2] == 2: #MODIS LST
+                var_name = ['modis_lst_1km_day_' + mos_file_name[-7:], 'modis_lst_1km_night_' + mos_file_name[-7:]]
+                with h5py.File('modis_lst_1km_' + mos_file_name[-7:] + '.hdf5', 'w') as f:
+                    for idv in range(modis_mat_ease.shape[2]):
+                        f.create_dataset(var_name[idv], data=modis_mat_ease[:, :, idv])
+                f.close()
+            else: # MODIS NDVI
+                var_name = ['modis_ndvi_1km_' + mos_file_name[-7:]]
+                with h5py.File('modis_ndvi_1km_' + mos_file_name[-7:] + '.hdf5', 'w') as f:
+                    for idv in range(modis_mat_ease.shape[2]):
+                        f.create_dataset(var_name[idv], data=modis_mat_ease[:, :, idv])
+                f.close()
+
+            print(mos_file_name)
+            del(var_name, modis_mat_ease, modis_mat, src_ds)
+
+
+            # # Crop to the extent and create the final warped raster
+            # dst_ds = gdal.Translate(mos_file_name + '.tif', out_ds,
+            #                         projWin=[lon_roi_min, lat_roi_max, lon_roi_max, lat_roi_min])
+            # dst_ds = None
+
+
+
+
 
 
 ########################################################################################################################
-# 4. Process SMAP enhanced L2 radiometer half-orbit SM 9 km data
+# 2. Process SMAP enhanced L2 radiometer half-orbit SM 9 km data
 
 matsize_smap_1day = [len(lat_world_ease_9km), len(lon_world_ease_9km)]
 smap_mat_init_1day = np.empty(matsize_smap_1day, dtype='float32')
 smap_mat_init_1day[:] = np.nan
 
 
-for iyr in [0]:#range(len(daysofyear)):
+for iyr in range(3, len(daysofyear)-1):
 
     os.chdir(path_smap + '/' + str(yearname[iyr]))
     smap_files_year = sorted(glob.glob('*.h5'))
 
     # Group SMAP data by month
-    for imo in [3, 4]:#range(len(monthnum)):
+    for imo in range(len(monthnum)):
 
         os.chdir(path_smap + '/' + str(yearname[iyr]))
         smap_files_group_1month = [smap_files_year.index(i) for i in smap_files_year if str(yearname[iyr]) + monthname[imo] in i]
@@ -213,7 +338,7 @@ for iyr in [0]:#range(len(daysofyear)):
             smap_mat_month_am[:] = np.nan
             smap_mat_month_pm = np.copy(smap_mat_month_am)
 
-            # 4.1 Extract SMAP data layers and rebind to daily
+            # Extract SMAP data layers and rebind to daily
             for idt in range(daysofmonth_seq[imo, iyr]):
                 smap_files_group_1day = [smap_files_month.index(i) for i in smap_files_month if
                                          str(yearname[iyr]) + monthname[imo] + str(idt+1).zfill(2) in i]

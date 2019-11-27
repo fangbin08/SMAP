@@ -30,7 +30,7 @@ path_modis_model_ip = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Model_Inpu
 # Path of SM model output
 path_model_op = '/Volumes/MyPassport/SMAP_Project/Datasets/SMAP_ds/Model_Output'
 # Path of downscaled SM
-path_smap_sm_ds = '/Volumes/MyPassport/SMAP_Project/Datasets/SMAP_ds/Model'
+path_smap_sm_ds = '/Volumes/MyPassport/SMAP_Project/Datasets/SMAP_ds/Downscale'
 
 lst_folder = '/MYD11A1/'
 ndvi_folder = '/MYD13A2/'
@@ -234,7 +234,6 @@ for iyr in range(len(yearname)):
             out_ds_tiff.SetProjection(ds_lst_1.GetProjection())
 
             # Write each band to Geotiff file
-
             out_ds_tiff.GetRasterBand(1).WriteArray(smap_sm_1km_am_model)
             out_ds_tiff.GetRasterBand(1).SetNoDataValue(0)
             out_ds_tiff.GetRasterBand(2).WriteArray(smap_sm_1km_pm_model)
@@ -250,13 +249,16 @@ for iyr in range(len(yearname)):
 
 
 ########################################################################################################################
-# 2. Implement the VIS/IR downscaling model on MODIS LST difference to calculate 1 km soil moisture
+# 2. Downscale the 1km soil moisture model output by 9 km SMAP L2 soil moisture data
 
 # Create initial EASE grid projection matrices
 smap_sm_1km_agg_init = np.empty([len(lat_world_ease_9km), len(lon_world_ease_9km)], dtype='float32')
 smap_sm_1km_agg_init[:] = np.nan
 smap_sm_1km_disagg_init = np.empty([len(lat_world_ease_1km), len(lon_world_ease_1km)], dtype='float32')
+smap_sm_1km_disagg_init = smap_sm_1km_disagg_init.reshape(1, -1)
 smap_sm_1km_disagg_init[:] = np.nan
+smap_sm_1km_ds_init = np.empty([len(lat_world_ease_1km), len(lon_world_ease_1km), 2], dtype='float32')
+smap_sm_1km_ds_init[:] = np.nan
 
 for iyr in range(len(yearname)):
 
@@ -295,7 +297,11 @@ for iyr in range(len(yearname)):
             for idf in range(2):
                 # Aggregate 1km SM model output to 9 km resolution, and calculate its difference with 9 km SMAP SM
                 smap_sm_1km_agg = np.copy(smap_sm_1km_agg_init)
+                smap_sm_1km_ds_output = np.copy(smap_sm_1km_ds_init)
                 smap_sm_1km_1file = smap_sm_1km[:, :, idf]
+                smap_sm_1km_1file_1dim = smap_sm_1km_1file.reshape(1, -1)
+                smap_sm_1km_1file_ind = np.where(~np.isnan(smap_sm_1km_1file_1dim))[1]
+
                 smap_sm_1km_agg = np.array \
                     ([np.nanmean(smap_sm_1km_1file[row_world_ease_9km_from_1km_ext33km_ind[x], :], axis=0)
                       for x in range(len(lat_world_ease_9km))])
@@ -304,35 +310,38 @@ for iyr in range(len(yearname)):
                       for y in range(len(lon_world_ease_9km))])
                 smap_sm_1km_agg = np.fliplr(np.rot90(smap_sm_1km_agg, 3))
                 smap_sm_1km_delta = smap_sm_9km[:, :, month_lenth*idf+idt] - smap_sm_1km_agg
-                smap_sm_1km_delta = smap_sm_1km_delta.reshape(1, -1)
-                # [row_smap_sm_1km_delta, col_smap_sm_1km_delta] = np.where(~np.isnan(smap_sm_1km_delta))
-                # smap_sm_1km_delta_ind = np.where(~np.isnan(smap_sm_1km_delta))[1]
+                # smap_sm_1km_delta = smap_sm_1km_delta.reshape(1, -1)
 
-
-                smap_sm_1km_1file_1dim = smap_sm_1km_1file.reshape(1, -1)
-                smap_sm_1km_1file_ind = np.where(~np.isnan(smap_sm_1km_1file_1dim))[1]
                 smap_sm_1km_delta_disagg = np.array([smap_sm_1km_delta[row_meshgrid_from_9km[0, smap_sm_1km_1file_ind[x]],
                                           col_meshgrid_from_9km[0, smap_sm_1km_1file_ind[x]]]
                               for x in range(len(smap_sm_1km_1file_ind))])
                 smap_sm_1km_disagg = np.copy(smap_sm_1km_disagg_init)
-                smap_sm_1km_disagg = smap_sm_1km_disagg.reshape(1, -1)
                 smap_sm_1km_disagg[0, smap_sm_1km_1file_ind] = smap_sm_1km_delta_disagg
                 smap_sm_1km_disagg = smap_sm_1km_disagg.reshape(len(lat_world_ease_1km), len(lon_world_ease_1km))
+
                 smap_sm_1km_ds = smap_sm_1km_1file + smap_sm_1km_disagg
                 smap_sm_1km_ds[np.where(smap_sm_1km_ds <= 0)] = np.nan
+                smap_sm_1km_ds_output[:, :, idf] = smap_sm_1km_ds
+                del(smap_sm_1km_agg, smap_sm_1km_1file, smap_sm_1km_1file_1dim, smap_sm_1km_1file_ind, smap_sm_1km_delta,
+                    smap_sm_1km_delta_disagg, smap_sm_1km_disagg)
 
+            # Save the daily 1 km SM model output to Geotiff files
+            # Build output path
+            os.chdir(path_smap_sm_ds + '/' + str(yearname[iyr]))
 
+            # Create a raster of EASE grid projection at 1 km resolution
+            out_ds_tiff = gdal.GetDriverByName('GTiff').Create\
+                ('/smap_sm_1km_ds_' + str(yearname[iyr]) + str(month_begin+idt+1).zfill(3) + '.tif',
+                 len(lon_world_ease_1km), len(lat_world_ease_1km), 2, # Number of bands
+                 gdal.GDT_Float32, ['COMPRESS=LZW', 'TILED=YES'])
+            out_ds_tiff.SetGeoTransform(ds_smap_sm_1km.GetGeoTransform())
+            out_ds_tiff.SetProjection(ds_smap_sm_1km.GetProjection())
 
+            # Loop write each band to Geotiff file
+            for idf in range(2):
+                out_ds_tiff.GetRasterBand(idf + 1).WriteArray(smap_sm_1km_ds_output[:, :, idf])
+                out_ds_tiff.GetRasterBand(idf + 1).SetNoDataValue(0)
+            out_ds_tiff = None  # close dataset to write to disc
 
-
-                # smap_sm_1km_delta_disagg = np.array(
-                #     [smap_sm_1km_delta[row_meshgrid_from_9km[0, x], col_meshgrid_from_9km[0, x]]
-                #      for x in range(row_meshgrid_from_9km.shape[1])])
-
-
-                # smap_sm_1km_am_model_nonnan = coef_mat_am_coef * ds_lst_am_nonnan + coef_mat_am_intc
-
-
-                # modis_mat_ease[:, :, idm] = smap_sm_1km_agg
-                # del(modis_mat_ease_1day, modis_mat_1day)
-
+            print(str(yearname[iyr]) + str(month_begin+idt+1).zfill(3))
+            del (smap_sm_1km_ds_output, ds_smap_sm_1km, out_ds_tiff)

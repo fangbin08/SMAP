@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 plt.rcParams["font.family"] = "serif"
 import numpy as np
 import h5py
+import datetime
+import gdal
 # Ignore runtime warning
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -25,7 +27,7 @@ path_modis = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/HDF'
 # Path of source output MODIS data
 path_modis_op = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Output'
 # Path of MODIS data for SM downscaling model input
-path_modis_model_ip = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Model_Input'
+path_modis_ip = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Model_Input'
 # Path of SM model output
 path_model_op = '/Volumes/MyPassport/SMAP_Project/Datasets/SMAP_ds/Model_Output'
 # Path of downscaled SM
@@ -36,6 +38,9 @@ path_gis_data = '/Users/binfang/Documents/SMAP_CONUS/data/gis_data'
 path_results = '/Users/binfang/Documents/SMAP_CONUS/results/results_191202'
 # Path of Land mask
 path_lmask = '/Volumes/MyPassport/SMAP_Project/Datasets/Lmask'
+# Path of downscaled SM
+path_smap_sm_ds = '/Users/binfang/Downloads/Processing/Downscale'
+
 
 lst_folder = '/MYD11A1/'
 ndvi_folder = '/MYD13A2/'
@@ -189,47 +194,93 @@ plt.savefig(path_results + '/slope_am.png')
 # 1.2.1 Worldwide
 year_plt = yearname[4]
 month_plt = 8
-days = 5
+days_begin = 1
+days_end = 5
+days_n = days_end - days_begin + 1
 
 # Load in SMAP 9 km SM
 for iyr in [year_plt]:  # range(yearname):
     for imo in [month_plt]:  # range(len(monthname)):
-        hdf_file_smap_9km = path_procdata + '/smap_sm_9km_' + str(year_plt) + monthname[month_plt-1] + '.hdf5'
+        hdf_file_smap_9km = path_procdata + '/smap_sm_9km_' + str(iyr) + monthname[imo-1] + '.hdf5'
         f_read_smap_9km = h5py.File(hdf_file_smap_9km, "r")
         varname_list_smap_9km = list(f_read_smap_9km.keys())
 
-smap_9km_plot = np.empty((len(lat_world_ease_9km), len(lon_world_ease_9km), days*2))
+smap_9km_plot = np.empty((len(lat_world_ease_9km), len(lon_world_ease_9km), days_n*2))
 smap_9km_plot[:] = np.nan
-for idt in range(days):
+for idt in range(days_begin-1, days_end-1):
     smap_9km_plot[:, :, idt] = f_read_smap_9km[varname_list_smap_9km[0]][:, :, idt] # AM
-    smap_9km_plot[:, :, idt+days] = f_read_smap_9km[varname_list_smap_9km[1]][:, :, idt] # PM
-f_read.close()
+    smap_9km_plot[:, :, idt+days_n] = f_read_smap_9km[varname_list_smap_9km[1]][:, :, idt] # PM
+f_read_smap_9km.close()
 
 
-# Build the map file
-map_wrd = Basemap(projection='cea',llcrnrlat=lat_world_min,urcrnrlat=lat_world_max,
-              llcrnrlon=lon_world_min,urcrnrlon=lon_world_max,resolution='c')
-x_wrd = np.linspace(0, map_wrd.urcrnrx, smap_9km_plot.shape[1])
-y_wrd = np.linspace(0, map_wrd.urcrnry, smap_9km_plot.shape[0])
-y_wrd = y_wrd[::-1]
-xx_wrd, yy_wrd = np.meshgrid(x_wrd, y_wrd)
+# smap_1km_plot = np.empty((len(lat_world_ease_1km), len(lon_world_ease_1km), days_n*2))
+# smap_1km_plot[:] = np.nan
+# Load in SMAP 1 km SM
+for iyr in [year_plt]:  # range(yearname):
+    for imo in [month_plt]:  # range(len(monthname)):
+        for idt in range(days_begin-1, days_end-1):
+            str_date = str(iyr) + '-' + monthname[imo-1] + '-' + str(days_begin).zfill(2)
+            str_doy = str(datetime.datetime.strptime(str_date, '%Y-%m-%d').date().timetuple().tm_yday)
+            tif_file_smap_1km = path_smap_sm_ds + '/' + str(iyr) + '/smap_sm_1km_ds_' + str(iyr) + str_doy + '.tif'
+            src_tf = gdal.Open(tif_file_smap_1km)
+            src_tf_arr = src_tf.ReadAsArray().astype(np.float32)
+            src_tf_arr = np.transpose(src_tf_arr, (1, 2, 0))
+            src_tf_arr_mean = np.nanmean(src_tf_arr, axis=2)
+            # smap_1km_plot[:, :, idt] = src_tf_arr[:, :, 0]
+            # smap_1km_plot[:, :, idt+5] = src_tf_arr[:, :, 1]
+            del(src_tf, src_tf_arr, tif_file_smap_1km)
+            print(idt)
+
+
+
 
 
 # Single maps
+os.chdir(path_results)
+# 9 km
+# Build the map file
+map_wrd_9km = Basemap(projection='cea',llcrnrlat=lat_world_min,urcrnrlat=lat_world_max,
+              llcrnrlon=lon_world_min,urcrnrlon=lon_world_max,resolution='c')
+x_wrd_9km = np.linspace(0, map_wrd_9km.urcrnrx, smap_9km_plot.shape[1])
+y_wrd_9km = np.linspace(0, map_wrd_9km.urcrnry, smap_9km_plot.shape[0])
+y_wrd_9km = y_wrd_9km[::-1]
+xx_wrd_9km, yy_wrd_9km = np.meshgrid(x_wrd_9km, y_wrd_9km)
+
 fig = plt.figure(num=None, figsize=(9.5, 3), dpi=100, facecolor='w', edgecolor='k')
+map_wrd_9km = Basemap(projection='cea', llcrnrlat=lat_world_min, urcrnrlat=lat_world_max,
+              llcrnrlon=lon_world_min, urcrnrlon=lon_world_max, resolution='c')
+map_wrd_9km.readshapefile(path_gis_data + '/gshhg-shp-2.3.7/GSHHS_shp/c/GSHHS_c_L1', 'GSHHS_f_L1', drawbounds=True)
+map_wrd_mesh_9km = map_wrd_9km.pcolormesh(xx_wrd_9km, yy_wrd_9km, np.nanmean(smap_9km_plot, axis=2), vmin=0, vmax=0.5, cmap='viridis_r')
+# draw parallels
+map_wrd_9km.drawparallels(np.arange(lat_world_min,lat_world_max,45), labels=[1,1,1,1])
+# draw meridians
+map_wrd_9km.drawmeridians(np.arange(lon_world_min,lon_world_max,90), labels=[1,1,1,1])
+map_wrd_9km.colorbar(map_wrd_mesh_9km, extend='both', location='bottom', pad='15%')
+plt.suptitle('SMAP SM 9 km', y=0.99)
+plt.show()
+
+# 1 km
+# Build the map file
+map_wrd = Basemap(projection='cea',llcrnrlat=lat_world_min,urcrnrlat=lat_world_max,
+              llcrnrlon=lon_world_min,urcrnrlon=lon_world_max,resolution='c')
+x_wrd = np.linspace(0, map_wrd.urcrnrx, src_tf_arr_mean.shape[1])
+y_wrd = np.linspace(0, map_wrd.urcrnry, src_tf_arr_mean.shape[0])
+y_wrd = y_wrd[::-1]
+xx_wrd, yy_wrd = np.meshgrid(x_wrd, y_wrd)
+
+fig = plt.figure(num=None, figsize=(9.5, 3), dpi=50, facecolor='w', edgecolor='k')
 map_wrd = Basemap(projection='cea', llcrnrlat=lat_world_min, urcrnrlat=lat_world_max,
               llcrnrlon=lon_world_min, urcrnrlon=lon_world_max, resolution='c')
 map_wrd.readshapefile(path_gis_data + '/gshhg-shp-2.3.7/GSHHS_shp/c/GSHHS_c_L1', 'GSHHS_f_L1', drawbounds=True)
-map_wrd_mesh = map_wrd.pcolormesh(xx_wrd, yy_wrd, smap_9km_plot[:, :, 0], vmin=0, vmax=0.5, cmap='viridis_r')
+map_wrd_mesh = map_wrd.pcolormesh(xx_wrd, yy_wrd, src_tf_arr_mean, vmin=0, vmax=0.5, cmap='viridis_r')
 # draw parallels
 map_wrd.drawparallels(np.arange(lat_world_min,lat_world_max,45), labels=[1,1,1,1])
 # draw meridians
 map_wrd.drawmeridians(np.arange(lon_world_min,lon_world_max,90), labels=[1,1,1,1])
 map_wrd.colorbar(map_wrd_mesh, extend='both', location='bottom', pad='15%')
-plt.suptitle('SMAP SM 9 km')
+plt.suptitle('SMAP SM 1 km', y=0.99)
 plt.show()
-
-
+plt.savefig(path_results + '/smap_1km_world.png')
 
 # Subplot maps
 fig, axes = plt.subplots(nrows=3, ncols=2, figsize=(11, 6.5), facecolor='w', edgecolor='k')
@@ -254,6 +305,37 @@ for ipt in range(3):
 plt.tight_layout()
 plt.show()
 plt.savefig(path_results + '/sm_comp.png')
+
+
+
+# 1.2.2 River Basins
+#1.2.2.1 Danube RB
+# Extent: 8.1541666669581900,42.0827660457165962; 29.7172841397513707,50.2457929826601912
+
+# Single maps
+os.chdir(path_results)
+# 9 km
+# Build the map file
+map_dan_9km = Basemap(projection='cea',llcrnrlat=42.0828,urcrnrlat=50.2458,
+              llcrnrlon=8.1542,urcrnrlon=29.7173,resolution='c')
+x_dan_9km = np.linspace(0, map_dan_9km.urcrnrx, smap_9km_plot.shape[1])
+y_dan_9km = np.linspace(0, map_dan_9km.urcrnry, smap_9km_plot.shape[0])
+y_dan_9km = y_dan_9km[::-1]
+xx_dan_9km, yy_dan_9km = np.meshgrid(x_dan_9km, y_dan_9km)
+
+fig = plt.figure(num=None, figsize=(9.5, 3), dpi=100, facecolor='w', edgecolor='k')
+map_wrd_9km = Basemap(projection='cea', llcrnrlat=lat_world_min, urcrnrlat=lat_world_max,
+              llcrnrlon=lon_world_min, urcrnrlon=lon_world_max, resolution='c')
+map_wrd_9km.readshapefile(path_gis_data + '/gshhg-shp-2.3.7/GSHHS_shp/c/GSHHS_c_L1', 'GSHHS_f_L1', drawbounds=True)
+map_wrd_mesh_9km = map_wrd_9km.pcolormesh(xx_wrd_9km, yy_wrd_9km, np.nanmean(smap_9km_plot, axis=2), vmin=0, vmax=0.5, cmap='viridis_r')
+# draw parallels
+map_wrd_9km.drawparallels(np.arange(lat_world_min,lat_world_max,45), labels=[1,1,1,1])
+# draw meridians
+map_wrd_9km.drawmeridians(np.arange(lon_world_min,lon_world_max,90), labels=[1,1,1,1])
+map_wrd_9km.colorbar(map_wrd_mesh_9km, extend='both', location='bottom', pad='15%')
+plt.suptitle('SMAP SM 9 km', y=0.99)
+plt.show()
+
 
 
 

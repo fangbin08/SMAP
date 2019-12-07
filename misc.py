@@ -144,59 +144,6 @@ b, m = np.polyfit(xx, yy, 1)
 plt.scatter(xx, yy)
 
 
-password:
-Nova=0411
-Nova_0411
-Nova-0411
-Nuevo-0411
-Nuevo_0411
-Nuevo=0411
-Colu_0411
-Bin-0411
-BinF0411
-
-joyousviolin875
-192.168.0.17
-
-档案号: 201712130229084
-
-Dept: 13040 Fund: FC01 Object: 52022
-account: 161341, GP10216, 31350 EN-Eng Sys and Environment
-
-DL Number: F04180930010822
-Passport: EB0598660
-
-BOA: 223006133635
-Routing No.: 053904483
-
-Visa Card: 4147 2023 2709 6523, 4147202327096523
-CVV: 999
-
-Phone account number: 534017067098
-pin number: 8340
-
-H1B receipt number (UVA): WAC1908350447
-EB1A receipt number: SRC1890397889
-EB2-NIW receipt number: SRC1890397888
-
-VIN: JM3KE2CY4G0619273
-
-Convolution Neural Network
-Maxwell-Boltzmann Distribution
-Support Vector Regression
-
-
-8809 5289 98
- 
-
-UVA computing ID: BF3FH
-Email: bf3fh@virginia.edu
-password: Sc_nova_0411
-UVA ID: 596996604
-
-passcode: tswbiv5
-
-4349965047
 
 
 

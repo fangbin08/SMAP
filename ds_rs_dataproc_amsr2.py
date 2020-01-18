@@ -24,8 +24,6 @@ path_modis = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/HDF'
 path_modis_op = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Output'
 # Path of MODIS data for SM downscaling model input
 path_modis_model = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Model_Input'
-# Path of AMSR2 data
-path_smap = '/Volumes/MyPassport/SMAP_Project/NewData/SMAP'
 # Path of processed data
 path_procdata = '/Users/binfang/Downloads/Processing/processed_data'
 # Path of Land mask
@@ -213,8 +211,11 @@ for iyr in [4]:#range(len(daysofyear)):
                     varname_list_amsr2 = list(fe_amsr2.keys())
                     # Extract variables
                     sm_c1 = fe_amsr2[varname_list_amsr2[8]][()]
+                    sm_c1_error = fe_amsr2[varname_list_amsr2[9]][()]
                     sm_c1 = sm_c1/100
-                    sm_c1[np.where((sm_c1 <= 0) | (sm_c1 > 0.5))] = np.nan
+                    # sm_c1[np.where((sm_c1 <= 0) | (sm_c1 > 0.5))] = np.nan
+
+
                     sm_c2 = fe_amsr2[varname_list_amsr2[10]][()]
                     sm_c2 = sm_c2/100
                     sm_c2[np.where((sm_c2 <= 0) | (sm_c2 > 0.5))] = np.nan

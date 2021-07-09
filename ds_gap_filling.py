@@ -7,6 +7,7 @@ import calendar
 import glob
 import itertools
 import rasterio
+import gdal
 import pandas as pd
 import datetime
 # Ignore runtime warning
@@ -55,9 +56,9 @@ path_gldas = '/Volumes/MyPassport/SMAP_Project/Datasets/GLDAS'
 # Path of source LTDR NDVI data
 path_ltdr = '/Volumes/MyPassport/SMAP_Project/Datasets/LTDR/Ver5'
 # Path of processed data
-path_procdata = '/Volumes/MyPassport/SMAP_Project/Datasets/processed_data'
+path_procdata = '/Volumes/Elements/processed_data'
 # Path of model data
-path_model = '/Volumes/MyPassport/SMAP_Project/Datasets/model_data'
+path_model = '/Volumes/Elements/processed_data'
 # Path of Land mask
 path_lmask = '/Volumes/MyPassport/SMAP_Project/Datasets/Lmask'
 # Path of AMSR2 data
@@ -66,6 +67,17 @@ path_amsr2 = '/Volumes/MyPassport/SMAP_Project/Datasets/AMSR2'
 path_modis_1km = '/Volumes/My Book/MODIS/Model_Input/MYD11A1/'
 path_modis_input = '/Volumes/MyPassport/SMAP_Project/Datasets/MODIS/HDF_Data'
 path_modis_lrm_output = '/Users/binfang/Downloads/Processing/SMAP_Downscale/LRM_output'
+path_modis_lrm_output_proc = '/Volumes/MyPassport/SMAP_Project/Datasets/model_data/LRM_output_processed'
+path_modis_prediction = '/Users/binfang/Downloads/Processing/SMAP_Downscale/MODIS_LST_pred'
+path_modis_lst = '/Volumes/MyPassport/SMAP_Project/Datasets/MODIS/Model_Input/MYD11A1'
+path_modis_lst_rev = '/Volumes/MyPassport/SMAP_Project/Datasets/MODIS/Model_Input/MYD11A1_ver2'
+
+# Path of SMAP SM
+path_smap = '/Volumes/MyPassport/SMAP_Project/Datasets/SMAP'
+
+path_smap_ip = '/Users/binfang/Downloads/Processing/MODIS/Model_Output'
+# Path of source output MODIS data
+path_smap_op = '/Volumes/Elements/MODIS/Model_Output'
 
 # Load in variables
 os.chdir(path_workspace)
@@ -79,16 +91,15 @@ f.close()
 del(var_obj, f, varname_list)
 
 # Generate land/water mask provided by GLDAS/NASA
-# lmask_file = open(path_lmask + '/FLDAS_GLOBAL_watermask_MOD44W.nc', 'r')
-rootgrp = Dataset(path_lmask + '/FLDAS_GLOBAL_watermask_MOD44W.nc', mode='r')
-lmask_read = rootgrp.variables['LANDMASK'][:]
-lmask_read = np.ma.getdata(np.squeeze((lmask_read)))
-lmask_read = np.flipud(lmask_read)
-rootgrp.close()
-lmask_sh = np.empty((300, lmask_read.shape[1]), dtype='float32')
-lmask_sh[:] = 0
-lmask_10km = np.concatenate((lmask_read, lmask_sh), axis=0)
-del(lmask_read, lmask_sh, rootgrp)
+# rootgrp = Dataset(path_lmask + '/FLDAS_GLOBAL_watermask_MOD44W.nc', mode='r')
+# lmask_read = rootgrp.variables['LANDMASK'][:]
+# lmask_read = np.ma.getdata(np.squeeze((lmask_read)))
+# lmask_read = np.flipud(lmask_read)
+# rootgrp.close()
+# lmask_sh = np.empty((300, lmask_read.shape[1]), dtype='float32')
+# lmask_sh[:] = 0
+# lmask_10km = np.concatenate((lmask_read, lmask_sh), axis=0)
+# del(lmask_read, lmask_sh, rootgrp)
 
 # World extent corner coordinates
 lat_world_max = 90
@@ -175,27 +186,27 @@ size_world_ease_1km = np.array([14616, 34704])
 # f.close()
 # #----------------------------------------------------------------------------------------------------------------
 
-# Load in variables
-f = h5py.File(path_model + '/gap_filling/coord_world_1km_ind.hdf5', "r")
-varname_list = list(f.keys())
-varname_list = varname_list[2:]
-for x in range(len(varname_list)):
-    var_obj = f[varname_list[x]][()]
-    exec(varname_list[x] + '= var_obj')
-    del(var_obj)
-f.close()
-del(f, varname_list)
+# # Load in variables
+# f = h5py.File(path_model + '/gap_filling/coord_world_1km_ind.hdf5', "r")
+# varname_list = list(f.keys())
+# varname_list = varname_list[2:]
+# for x in range(len(varname_list)):
+#     var_obj = f[varname_list[x]][()]
+#     exec(varname_list[x] + '= var_obj')
+#     del(var_obj)
+# f.close()
+# del(f, varname_list)
+#
+# # Divide into 100 blocks
+# coord_world_1km_group_divide_ind = \
+#     np.arange(0, len(coord_world_1km_land_ind_match), len(coord_world_1km_land_ind_match) // 100)[1:]
+# coord_world_1km_group_divide = np.split(coord_world_1km_land_ind_match, coord_world_1km_group_divide_ind)
+# coord_world_1km_group_divide[-2] = np.concatenate((coord_world_1km_group_divide[-2], coord_world_1km_group_divide[-1]))
+# del(coord_world_1km_group_divide[-1])
+#
+# del(coord_world_1km_land_ind_match)
 
-# Divide into 100 blocks
-coord_world_1km_group_divide_ind = \
-    np.arange(0, len(coord_world_1km_land_ind_match), len(coord_world_1km_land_ind_match) // 100)[1:]
-coord_world_1km_group_divide = np.split(coord_world_1km_land_ind_match, coord_world_1km_group_divide_ind)
-coord_world_1km_group_divide[-2] = np.concatenate((coord_world_1km_group_divide[-2], coord_world_1km_group_divide[-1]))
-del(coord_world_1km_group_divide[-1])
-
-del(coord_world_1km_land_ind_match)
-
-
+# #----------------------------------------------------------------------------------------------------------------
 # Generate a sequence of string between start and end dates (Year + DOY)
 start_date = '2015-01-01'
 end_date = '2020-12-31'
@@ -403,12 +414,12 @@ for iyr in range(len(yearname)):
 
 
 ########################################################################################################################
-# 3. Use AMSR2 Tb and MODIS LST data to build linare regression model
+# 3. Use AMSR2 Tb and MODIS LST data to build linear regression model
 
 modis_files_all = sorted(glob.glob(path_modis_input + '/*hdf5*'))
 modis_files_month = np.array([int(os.path.basename(modis_files_all[x]).split('_')[2][4:6]) for x in range(len(modis_files_all))])
 modis_files_month_ind = [np.where(modis_files_month == x)[0].tolist() for x in range(1, 13)]
-# MODIS and AMSR2 HDF files have the same file name norms
+# MODIS and AMSR2 HDF files have the same file name specification
 amsr2_files_all = sorted(glob.glob(path_amsr2 + '/Tb_10km_monthly_land/*hdf5*'))
 len_modis = len(coord_world_1km_group_divide[0]) * 99 + len(coord_world_1km_group_divide[-1])
 coord_world_1km_group_divide_ind_rev = \
@@ -462,7 +473,7 @@ for imo in range(len(monthname)):
         modis_lstn_all = np.concatenate(modis_lstn_all, axis=0)
 
 
-        # Repeat the AMSR2 arrays by coord_world_1km_group_ind_sub for building linear regression
+        # Extrct the AMSR2 land pixels
         amsr2_tbd_lr = amsr2_tbd_all[:, coord_world_1km_group_divide[idx]]
         amsr2_tbn_lr = amsr2_tbn_all[:, coord_world_1km_group_divide[idx]]
 
@@ -488,13 +499,260 @@ for imo in range(len(monthname)):
     del(amsr2_tbd_all, amsr2_tbn_all)
 
 
+########################################################################################################################
+# 4. Combine and apply the linear regression model coefficients to generate 1 km LST from AMSR2 data
+
+# Load in variables
+f = h5py.File(path_model + '/gap_filling/coord_world_1km_ind.hdf5', "r")
+varname_list = list(f.keys())
+varname_list = [varname_list[0], varname_list[3]]
+for x in range(len(varname_list)):
+    var_obj = f[varname_list[x]][()]
+    exec(varname_list[x] + '= var_obj')
+    del(var_obj)
+f.close()
+del(f, varname_list)
+
+
+# 4.1 Combine the linear regression model coefficients to one file
+lrm_files_all = sorted(glob.glob(path_modis_lrm_output + '/*hdf5*'))
+lrm_name = np.array([int(os.path.basename(lrm_files_all[x]).split('.')[0].split('_')[1] +
+            os.path.basename(lrm_files_all[x]).split('.')[0].split('_')[2].zfill(3))
+            for x in range(len(lrm_files_all))])
+lrm_name_ind = np.argsort(lrm_name, kind='mergesort')
+lrm_files_all = [lrm_files_all[lrm_name_ind[x]] for x in range(len(lrm_name_ind))]
+
+lrm_files_month = np.array([int(os.path.basename(lrm_files_all[x]).split('_')[1]) for x in range(len(lrm_files_all))])
+lrm_files_month_ind = [np.where(lrm_files_month == x)[0].tolist() for x in range(1, 13)]
+
+for imo in range(len(lrm_files_month_ind)):
+
+    lrm_day_coef_all = []
+    lrm_day_stats_all = []
+    lrm_night_coef_all = []
+    lrm_night_stats_all = []
+    for ife in range(len(lrm_files_month_ind[imo])):
+        lrm_file = h5py.File(lrm_files_all[lrm_files_month_ind[imo][ife]], "r")
+        lrm_varname_list = list(lrm_file.keys())
+        # 2 layers (day/night)
+        lrm_day_coef = lrm_file[lrm_varname_list[0]][:2, :]
+        lrm_day_stats = lrm_file[lrm_varname_list[0]][2:, :]
+        lrm_night_coef = lrm_file[lrm_varname_list[1]][:2, :]
+        lrm_night_stats = lrm_file[lrm_varname_list[1]][2:, :]
+        lrm_day_coef_all.append(lrm_day_coef)
+        lrm_day_stats_all.append(lrm_day_stats)
+        lrm_night_coef_all.append(lrm_night_coef)
+        lrm_night_stats_all.append(lrm_night_stats)
+        del(lrm_day_coef, lrm_day_stats, lrm_night_coef, lrm_night_stats)
+        print(lrm_files_all[lrm_files_month_ind[imo][ife]])
+
+    lrm_day_coef_all = np.concatenate(lrm_day_coef_all, axis=1)
+    lrm_day_stats_all = np.concatenate(lrm_day_stats_all, axis=1)
+    lrm_night_coef_all = np.concatenate(lrm_night_coef_all, axis=1)
+    lrm_night_stats_all = np.concatenate(lrm_night_stats_all, axis=1)
+
+    # Save variables to hdf file
+    var_name = ['lrm_day_coef_' + monthname[imo],
+                'lrm_day_stats_' + monthname[imo],
+                'lrm_night_coef_' + monthname[imo],
+                'lrm_night_stats_' + monthname[imo]]
+    data_name = ['lrm_day_coef_all', 'lrm_day_stats_all', 'lrm_night_coef_all', 'lrm_night_stats_all']
+
+    with h5py.File(path_modis_lrm_output_proc + '/lrm_' + monthname[imo] + '.hdf5', 'w') as f:
+        for idv in range(len(var_name)):
+            f.create_dataset(var_name[idv], data=eval(data_name[idv]), compression='lzf')
+    f.close()
+    del(lrm_day_coef_all, lrm_day_stats_all, lrm_night_coef_all, lrm_night_stats_all)
+
+
+########################################################################################################################
+# 4.2 Use the linear regression model coefficients to calculate 1 km LST from AMSR2 data
+
+# Load in variables
+f = h5py.File(path_model + '/gap_filling/coord_world_1km_ind.hdf5', "r")
+varname_list = list(f.keys())
+varname_list = [varname_list[0], varname_list[2]]
+for x in range(len(varname_list)):
+    var_obj = f[varname_list[x]][()]
+    exec(varname_list[x] + '= var_obj')
+    del(var_obj)
+f.close()
+del(f, varname_list)
+
+lmask_init = np.empty(size_world_ease_1km, dtype='float32')
+lmask_init = lmask_init.reshape(1, -1)
+lmask_init[:] = 0
+
+# AMSR2 file name indices
+amsr2_files_all = sorted(glob.glob(path_amsr2 + '/Tb_10km_monthly_land/*hdf5*'))
+amsr2_files_name = np.array([int(os.path.basename(amsr2_files_all[x]).split('_')[-1][0:6]) for x in range(len(amsr2_files_all))])
+amsr2_files_month = np.array([int(os.path.basename(amsr2_files_all[x]).split('_')[-1][4:6]) for x in range(len(amsr2_files_all))])
+amsr2_files_month_ind = [np.where(amsr2_files_month == x)[0].tolist() for x in range(1, 13)]
+
+lrm_files = sorted(glob.glob(path_modis_lrm_output_proc + '/*hdf5*'))
+
+# MODIS file name indices
+modis_files_all = []
+for iyr in range(len(yearname)):
+    modis_files = sorted(glob.glob(path_modis_lst + '/' + str(yearname[iyr]) + '/*.tif'))
+    modis_files_all.append(modis_files)
+    del(modis_files)
+modis_files_all = list(itertools.chain(*modis_files_all))
+modis_files_name = [modis_files_all[x].split('/')[-1].split('_')[-1][0:7] for x in range(len(modis_files_all))]
+modis_files_month = np.array([(datetime.datetime(int(modis_files_name[x][0:4]), 1, 1) +
+                              datetime.timedelta(int(modis_files_name[x][4:])-1)).month
+                             for x in range(len(modis_files_name))])
+modis_files_day = np.array([(datetime.datetime(int(modis_files_name[x][0:4]), 1, 1) +
+                              datetime.timedelta(int(modis_files_name[x][4:])-1)).day
+                             for x in range(len(modis_files_name))])
+modis_files_yearmonth = np.array([int(modis_files_name[x][0:4] + str(modis_files_month[x]).zfill(2))
+                                 for x in range(len(modis_files_name))])
+modis_files_yearmonthday = [modis_files_name[x][0:4] + str(modis_files_month[x]).zfill(2) +
+                                         str(modis_files_day[x]).zfill(2) for x in range(len(modis_files_name))]
+modis_files_month_ind = [np.where(modis_files_yearmonth == amsr2_files_name[x])[0].tolist() for x in range(len(amsr2_files_name))]
+
+modis_files_ind = []
+for imo in range(len(amsr2_files_month_ind)):
+    modis_files_ind_1month = [modis_files_month_ind[amsr2_files_month_ind[imo][x]] for x in range(len(amsr2_files_month_ind[imo]))]
+    # modis_files_ind_1month = list(itertools.chain(*modis_files_ind_1month))
+    modis_files_ind.append(modis_files_ind_1month)
+    del(modis_files_ind_1month)
+
+# Georeference information of tiff file
+kwargs = rasterio.open(modis_files_all[0]).meta.copy()
+kwargs.update(compress='lzw')
+
+
+# Generate the AMSR2 Tb data derived LST and use to gap-fill MODIS LST
+for imo in [9]:#range(len(monthname)):
+
+    # Read linear regression model data
+    lrm_hdf_file = h5py.File(lrm_files[imo], "r")
+    lrm_varname_list = list(lrm_hdf_file.keys())
+    slope_d = lrm_hdf_file[lrm_varname_list[0]][0, :]
+    intercept_d = lrm_hdf_file[lrm_varname_list[0]][1, :]
+    slope_n = lrm_hdf_file[lrm_varname_list[2]][0, :]
+    intercept_n = lrm_hdf_file[lrm_varname_list[2]][1, :]
+    lrm_hdf_file.close()
+
+    # Read MODIS LST data and AMSR2 Tb data
+    for ife in [1]:#range(len(amsr2_files_month_ind[imo])):
+
+        amsr2_hdf_file = h5py.File(amsr2_files_all[amsr2_files_month_ind[imo][ife]], "r")
+        amsr2_varname_list = list(amsr2_hdf_file.keys())
+
+        for idt in [0]:#range(len(modis_files_ind[imo][ife])):
+
+            # MODIS LST
+            tif_file = rasterio.open(modis_files_all[modis_files_ind[imo][ife][idt]]).read()
+            tif_file_day = int(modis_files_yearmonthday[modis_files_ind[imo][ife][idt]][-2:])
+            tif_file_name = os.path.basename(modis_files_all[modis_files_ind[imo][ife][idt]]).split('_')[3][:7]
+
+            modis_lstd = tif_file[0, :, :].reshape(1, -1)
+            modis_lstd = modis_lstd[0, coord_world_1km_ind]
+            modis_lstn = tif_file[1, :, :].reshape(1, -1)
+            modis_lstn = modis_lstn[0, coord_world_1km_ind]
+
+            modis_lstd_nan_ind = np.where(np.isnan(modis_lstd))
+            modis_lstn_nan_ind = np.where(np.isnan(modis_lstn))
+
+
+            # 2 layers (day/night)
+            # Ascending (1:30 PM) -> day
+            amsr2_tbd = amsr2_hdf_file[amsr2_varname_list[0]][tif_file_day-1, :] # index-1
+            amsr2_tbd_exp = amsr2_tbd[coord_world_1km_land_ind_match]
+            # Descending (1:30 AM) -> night
+            amsr2_tbn = amsr2_hdf_file[amsr2_varname_list[1]][tif_file_day-1, :]
+            amsr2_tbn_exp = amsr2_tbn[coord_world_1km_land_ind_match]
+
+
+            amsr2_lstd_pred = slope_d * amsr2_tbd_exp + intercept_d
+            amsr2_lstn_pred = slope_n * amsr2_tbn_exp + intercept_n
+
+            # Apply the gap-filled LST pixels from AMSR2 to MODIS
+            modis_lstd[modis_lstd_nan_ind] = amsr2_lstd_pred[modis_lstd_nan_ind]
+            modis_lstn[modis_lstn_nan_ind] = amsr2_lstn_pred[modis_lstn_nan_ind]
+
+
+            modis_lstd_filled = np.copy(lmask_init)
+            modis_lstd_filled[0, coord_world_1km_ind] = modis_lstd
+            modis_lstd_filled = modis_lstd_filled.reshape(size_world_ease_1km)
+            modis_lstd_filled[modis_lstd_filled > 363] = np.nan
+            modis_lstd_filled[modis_lstd_filled < 203] = np.nan
+
+            modis_lstn_filled = np.copy(lmask_init)
+            modis_lstn_filled[0, coord_world_1km_ind] = modis_lstn
+            modis_lstn_filled = modis_lstn_filled.reshape(size_world_ease_1km)
+            modis_lstn_filled[modis_lstn_filled > 363] = np.nan
+            modis_lstn_filled[modis_lstn_filled < 203] = np.nan
+
+            modis_lst_filled = np.stack((modis_lstd_filled, modis_lstn_filled))
+            print(tif_file_name)
+
+            # Save the MODIS LST data to Geotiff files
+            input_ds = rasterio.open(path_modis_lst_rev + '/modis_lst_1km_' + tif_file_name + '.tif', 'w', **kwargs)
+            for ilr in range(2):
+                input_ds.write(modis_lst_filled[ilr, :, :], ilr+1)
+            input_ds = None
+
+            del(tif_file, tif_file_day, tif_file_name, modis_lstd, modis_lstn, modis_lstd_nan_ind, modis_lstn_nan_ind,
+                amsr2_tbd, amsr2_tbd_exp, amsr2_tbn, amsr2_tbn_exp, amsr2_lstd_pred, amsr2_lstn_pred, modis_lstd_filled,
+                modis_lstn_filled, modis_lst_filled, input_ds)
+
+        amsr2_hdf_file.close()
+        del(amsr2_hdf_file, amsr2_varname_list)
+
+    del(lrm_hdf_file, lrm_varname_list, slope_d, intercept_d, slope_n, intercept_n)
 
 
 
-file = h5py.File('/Users/binfang/Downloads/Processing/SMAP_Downscale/LRM_output/lrm_04_31.hdf5', "r")
-var = list(file.keys())
-lrmd = file[var[0]][()]
-# plt.plot(lrmd[2,:])
-plt.hist(lrmd[2, :].ravel())
+    # Build output path
+    # band_path = os.path.join(path_modis_op, os.path.basename(os.path.splitext(hdf_files)[0]) + "-ctd" + ".tif")
+    # Write raster
+
+    band_ds = gdal.Open(modis_files_all[0], gdal.GA_ReadOnly)
+    out_ds = gdal.GetDriverByName('MEM').Create('', band_ds.RasterXSize, band_ds.RasterYSize, band_n, #Number of bands
+                                  gdal.GDT_Float32)
+    out_ds.SetGeoTransform(band_ds.GetGeoTransform())
+    out_ds.SetProjection(band_ds.GetProjection())
+
+    # Loop write each band to Geotiff file
+    for idb in range(len(subdataset_id)//2):
+        out_ds.GetRasterBand(idb+1).WriteArray(band_array[:, :, idb])
+        out_ds.GetRasterBand(idb+1).SetNoDataValue(0)
+    # out_ds = None  #close dataset to write to disc
 
 
+
+# file = h5py.File('/Users/binfang/Downloads/Processing/SMAP_Downscale/LRM_output/lrm_08_20.hdf5', "r")
+# var = list(file.keys())
+# lrmd = file[var[0]][()]
+# # plt.plot(lrmd[2,:])
+# plt.hist(lrmd[2, :].ravel())
+
+
+########################################################################################################################
+# 5. Convert the Geo-tiff files
+
+for iyr in range(len(yearname)):
+    for idt in range(daysofyear[iyr]):
+
+        filename = 'smap_sm_1km_' + str(yearname[iyr]) + str(idt+1).zfill(3) + '.tif'
+        ds_sm_input = gdal.Open(path_smap_ip + '/' + str(yearname[iyr]) + '/' + filename)
+        ds_sm = ds_sm_input.ReadAsArray()
+
+        # Create a raster of EASE grid projection at 1 km resolution
+        out_ds_tiff = gdal.GetDriverByName('GTiff').Create(path_smap_op + '/' + str(yearname[iyr]) + '/' + filename,
+                                                           ds_sm_input.RasterXSize, ds_sm_input.RasterYSize,
+                                                           ds_sm_input.RasterCount, gdal.GDT_Float32,
+                                                           ['COMPRESS=LZW', 'TILED=YES'])
+        out_ds_tiff.SetGeoTransform(ds_sm_input.GetGeoTransform())
+        out_ds_tiff.SetProjection(ds_sm_input.GetProjection())
+
+        # Write each band to Geotiff file
+        for ilr in range(2):
+            out_ds_tiff.GetRasterBand(ilr+1).WriteArray(ds_sm[ilr, :, :])
+            out_ds_tiff.GetRasterBand(ilr+1).SetNoDataValue(0)
+        out_ds_tiff = None  # close dataset to write to disc
+        print(filename)
+        del(filename, ds_sm_input, ds_sm, out_ds_tiff)

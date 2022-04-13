@@ -14,8 +14,8 @@
 ifpfn="/Users/binfang/Downloads/Processing/bash_codes/download/0521940633-download.txt"
 ofp="/Users/binfang/Downloads/Processing/bash_codes/download"                
 N="3"
-ED_ID="fangbin2008"
-ED_Pass="Nova-0411"
+ED_ID="XXXXX"
+ED_Pass="XXXXX"
 speed_lim="3m"
 
 # !DESCRIPTION:   

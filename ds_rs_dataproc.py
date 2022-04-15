@@ -6,6 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import datetime
 import h5py
+from netCDF4 import Dataset
 import calendar
 # Ignore runtime warning
 import warnings
@@ -74,22 +75,25 @@ def hdf_subdataset_extraction(hdf_files, subdataset_id, band_n):
 # 0. Input variables
 # Specify file paths
 # Path of current workspace
-path_workspace = '/Users/binfang/Documents/SMAP_CONUS/codes_py'
+path_workspace = '/Users/binfang/Documents/SMAP_Project/smap_codes'
 # Path of source MODIS data
-path_modis = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/HDF'
+path_modis = '/Users/binfang/Downloads/Processing/SMAP_Downscale/HDF'
 # Path of output MODIS data
 path_modis_op = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Output'
 # Path of MODIS data for SM downscaling model input
-path_modis_model = '/Volumes/MyPassport/SMAP_Project/NewData/MODIS/Model_Input'
-# Path of SMAP data
-path_smap = '/Volumes/MyPassport/SMAP_Project/NewData/SMAP'
-# Path of processed data
-path_procdata = '/Volumes/MyPassport/SMAP_Project/Datasets/processed_data'
+path_modis_model = '/Users/binfang/Downloads/Processing/SMAP_Downscale/Model_Input'
+# Path of 9 km SMAP SM
+path_smap = '/Users/binfang/Downloads/SMAP'
+# Path of model data
+path_model = '/Volumes/MyPassport/SMAP_Project/Datasets/model_data'
 # Path of Land mask
 path_lmask = '/Volumes/MyPassport/SMAP_Project/Datasets/Lmask'
+# Path of GPM data
+path_gpm = '/Volumes/MyPassport/SMAP_Project/Datasets/GPM'
+
 lst_folder = '/MYD11A1/'
 ndvi_folder = '/MYD13A2/'
-subfolders = np.arange(2015, 2019+1, 1)
+subfolders = np.arange(2010, 2021, 1)
 subfolders = [str(i).zfill(4) for i in subfolders]
 
 # Load in variables
@@ -106,8 +110,8 @@ for x in range(len(varname_list)):
 f.close()
 
 # Generate sequence of string between start and end dates (Year + DOY)
-start_date = '2015-04-01'
-end_date = '2019-10-31'
+start_date = '2010-01-01'
+end_date = '2021-12-31'
 
 start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
 end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
@@ -119,7 +123,7 @@ for i in range(delta_date.days + 1):
     date_seq.append(str(date_str.timetuple().tm_year) + str(date_str.timetuple().tm_yday).zfill(3))
 
 # Count how many days for a specific year
-yearname = np.linspace(2015, 2019, 5, dtype='int')
+yearname = np.linspace(2010, 2021, 12, dtype='int')
 monthnum = np.linspace(1, 12, 12, dtype='int')
 monthname = np.arange(1, 13)
 monthname = [str(i).zfill(2) for i in monthname]
@@ -179,68 +183,16 @@ gts = (-17367530.44516138, 1000.89502334956, 0, 7314540.79258289, 0, -1000.89502
 ########################################################################################################################
 # 1. Extract, mosaic and reproject MODIS tile data to EASE grid projection at 1 km
 # 1.1 Extract data layers from MODIS HDF5 files and write to GeoTiff
-
-# for ifo in range(len(modis_folders)): # MODIS LST and NDVI subfolders
-#
-#     for iyr in range(4, len(yearname)):
-#
-#         for imo in range(len(monthname)):
-#
-#             os.chdir(path_modis + modis_folders[ifo] + subfolders[iyr] + '/' + monthname[imo])
-#             hdf_files = sorted(glob.glob('*.hdf'))
-#
-#             for idt in range(len(hdf_files)):
-#                 # ctd_file_path = path_modis_op + modis_folders[ifo] + subfolders[iyr] + '/' + monthname[imo]
-#                 hdf_subdataset_extraction(hdf_files[idt], subdataset_id[ifo], band_n[ifo])
-#                 print(hdf_files[idt]) # Print the file being processed
-
-
-# # 1.2 Group the Geotiff files by dates from their names and
-# # build virtual dataset VRT files for mosaicking MODIS geotiff files in the list
-#
-# vrt_options = gdal.BuildVRTOptions(resampleAlg='near', addAlpha=None, bandList=[1])
-#
-# for ifo in range(len(modis_folders)): # MODIS LST and NDVI subfolders
-#
-#     for iyr in range(len(subfolders)):
-#
-#         for imo in range(len(monthname)):
-#
-#             os.chdir(path_modis + modis_folders[ifo] + subfolders[iyr] + '/' + monthname[imo])
-#             hdf_files = sorted(glob.glob('*.hdf'))
-#
-#             hdf_file_name = [hdf_files[x].split('.')[1] for x in range(len(hdf_files))]
-#             hdf_file_name_unique = sorted(list(set(hdf_file_name)))
-#
-#             # Group the MODIS tile files by each day
-#             hdf_files_group = []
-#             for idt in range(len(hdf_file_name_unique)):
-#                 hdf_files_group_1day = [hdf_files.index(i) for i in hdf_files if hdf_file_name_unique[idt] in i]
-#                 hdf_files_group.append(hdf_files_group_1day)
-#
-#             # build virtual dataset VRT file
-#             for idt in [1]:#range(len(hdf_files_group)):
-#                 if len(hdf_files_group[idt]) != 0:
-#                     hdf_files_toBuild = [hdf_files[i] for i in hdf_files_group[idt]]
-#                     vrt_files_name = '_'.join(hdf_files[hdf_files_group[idt][0]].split('.')[0:2])
-#                     gdal.BuildVRT('mosaic_sinu_' + vrt_files_name + '.vrt', hdf_files_toBuild, options=vrt_options)
-#                     exec('mosaic_sinu_' + vrt_files_name + '= None')
-#                     print('mosaic_sinu_' + vrt_files_name + '.vrt')
-#                 else:
-#                     pass
-
-
-
-# 1.3 Mosaic the list of MODIS geotiff files and reproject to lat/lon projection
+# 1.2 Mosaic the list of MODIS geotiff files and reproject to lat/lon projection
 
 modis_mat_ease_1day_init = np.empty([len(lat_world_ease_1km), len(lon_world_ease_1km)], dtype='float32')
 modis_mat_ease_1day_init[:] = np.nan
 
-for ifo in range(len(modis_folders)): # MODIS LST and NDVI subfolders
+for ifo in [1]:#range(len(modis_folders)): # MODIS LST and NDVI subfolders
 
-    for iyr in range(4, len(subfolders)):
+    for iyr in [0]:#range(4, len(subfolders)):
 
-        for imo in range(6, len(monthname)):
+        for imo in [0]:#range(6, len(monthname)):
 
             path_month = path_modis + modis_folders[ifo] + subfolders[iyr] + '/' + monthname[imo]
             os.chdir(path_month)
@@ -328,11 +280,6 @@ for ifo in range(len(modis_folders)): # MODIS LST and NDVI subfolders
             del (hdf_files, path_month, hdf_file_name_unique)
 
 
-
-
-
-
-
 ########################################################################################################################
 # 2. Process SMAP enhanced L2 radiometer half-orbit SM 9 km data
 
@@ -340,14 +287,13 @@ matsize_smap_1day = [len(lat_world_ease_9km), len(lon_world_ease_9km)]
 smap_mat_init_1day = np.empty(matsize_smap_1day, dtype='float32')
 smap_mat_init_1day[:] = np.nan
 
-
-for iyr in range(len(daysofyear)):
+for iyr in [11]:#range(len(daysofyear)):
 
     os.chdir(path_smap + '/' + str(yearname[iyr]))
     smap_files_year = sorted(glob.glob('*.h5'))
 
     # Group SMAP data by month
-    for imo in range(len(monthnum)):
+    for imo in range(0, 10):#range(0, len(monthnum)):
 
         os.chdir(path_smap + '/' + str(yearname[iyr]))
         smap_files_group_1month = [smap_files_year.index(i) for i in smap_files_year if str(yearname[iyr]) + monthname[imo] in i]
@@ -386,10 +332,11 @@ for iyr in range(len(daysofyear)):
                     # Extract variables
                     col_ind = smap_data_group[varname_list_smap[0]][()]
                     row_ind = smap_data_group[varname_list_smap[1]][()]
-                    sm_flag = smap_data_group[varname_list_smap[14]][()]
-                    sm = smap_data_group[varname_list_smap[20]][()]
-                    sm[np.where(sm == -9999)] = np.nan
-                    sm[np.where((sm_flag == 7) & (sm_flag == 15))] = np.nan # Refer to the results of np.binary_repr
+                    sm_flag = smap_data_group[varname_list_smap[15]][()]
+                    sm = smap_data_group[varname_list_smap[22]][()]
+                    sm[np.where(sm < 0)] = np.nan
+                    # sm[np.where(sm == -9999)] = np.nan
+                    # sm[np.where((sm_flag == 7) & (sm_flag == 15))] = np.nan # Refer to the results of np.binary_repr
 
                     smap_mat_1file[row_ind, col_ind] = sm
                     smap_mat_group_1day[:, :, ife] = smap_mat_1file
@@ -410,7 +357,7 @@ for iyr in range(len(daysofyear)):
                 del(smap_mat_1day_am, smap_mat_1day_pm)
 
             # Save file
-            os.chdir(path_procdata)
+            os.chdir(path_smap + '/9km')
             var_name = ['smap_sm_9km_am_' + str(yearname[iyr]) + monthname[imo],
                         'smap_sm_9km_pm_' + str(yearname[iyr]) + monthname[imo]]
             data_name = ['smap_mat_month_am', 'smap_mat_month_pm']
@@ -423,6 +370,66 @@ for iyr in range(len(daysofyear)):
 
         else:
             pass
+
+
+########################################################################################################################
+# 3. Process GPM IMERG data
+
+os.chdir(path_gpm + '/nc4_data/2020')
+gpm_files = sorted(glob.glob('*.nc4'))
+gpm_files = gpm_files[92:] + gpm_files[0:92] # Move December 2019 to the end
+# Split the GPM data by year
+split_ind = [0] + list(np.cumsum(daysofyear))
+# gpm_files_split = [gpm_files[split_ind[x]:split_ind[x+1]] for x in range(len(split_ind)-1)]
+gpm_files_split = [gpm_files]
+
+
+# Extract lat/lon information
+rootgrp = Dataset(gpm_files[0], mode='r')
+lat_world_geo_10km = rootgrp.variables['lat'][:]
+lat_world_geo_10km = np.squeeze((lat_world_geo_10km))
+lat_world_geo_10km = np.ma.getdata(lat_world_geo_10km).reshape(1, -1)
+lat_world_geo_10km = np.fliplr(lat_world_geo_10km).ravel()
+
+lon_world_geo_10km = rootgrp.variables['lon'][:]
+lon_world_geo_10km = np.squeeze((lon_world_geo_10km))
+lon_world_geo_10km = np.ma.getdata(lon_world_geo_10km)
+
+
+for iyr in range(len(gpm_files_split)):
+
+    matsize_gpm_10km = [len(lat_world_geo_10km), len(lon_world_geo_10km), len(gpm_files_split[iyr])]
+    gpm_precip_world_10km = np.empty(matsize_gpm_10km, dtype='float32')
+    gpm_precip_world_10km[:] = np.nan
+
+    for idt in range(len(gpm_files_split[iyr])):
+        rootgrp = Dataset(gpm_files_split[iyr][idt], mode='r')
+        precip = rootgrp.variables['HQprecipitation'][:]
+        precip = np.squeeze((precip))
+        precip = np.rot90(precip)
+        precip[np.where(precip < 0)] = np.nan
+        gpm_precip_world_10km[:, :, idt] = precip
+        print(gpm_files_split[iyr][idt])
+
+    # Save GPM data
+    # os.chdir(path_model)
+    var_name = ['gpm_precip_10km_' + str(yearname[iyr+5]), 'lat_world_geo_10km', 'lon_world_geo_10km']
+    data_name = ['gpm_precip_world_10km', 'lat_world_geo_10km', 'lon_world_geo_10km']
+
+    with h5py.File(path_gpm + '/gpm_precip_' + str(yearname[iyr+5]) + '.hdf5', 'w') as f:
+        for idv in range(len(var_name)):
+            f.create_dataset(var_name[idv], data=eval(data_name[idv]))
+    f.close()
+
+    del(gpm_precip_world_10km)
+
+# prec_mean = np.nanmean(gpm_precip_world_10km[:, :, :], axis=2)
+# plt.imshow(prec_mean)
+
+
+
+
+
 
 
 

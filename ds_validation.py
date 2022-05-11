@@ -7,6 +7,8 @@ import datetime
 import glob
 import rasterio
 import gdal
+from rasterio.windows import Window
+from pyproj import Transformer
 import pandas as pd
 from scipy import stats
 import itertools
@@ -32,31 +34,68 @@ def insitu_extraction(filepath):
     stn_name = data_list[0].split()[6]
     stn_lat = float(data_list[0].split()[7])
     stn_lon = float(data_list[0].split()[8])
+    # Find the correct standard UTC time zone by lat/lon and convert to local time
+    sign = stn_lon//abs(stn_lon)
+    timezone_offset = (abs(stn_lon) + 7.5) // 15 * sign
+    smap_overpass_correct = smap_overpass + (timezone_offset * -1.0)
+    smap_overpass_correct = np.array(smap_overpass_correct, dtype=int)
+
+    # Determine if the UTC time of the local area is one day before/after the current
+    if smap_overpass_correct[0] < 0:
+        smap_overpass_correct[0] = 24 + smap_overpass_correct[0]
+        am_offset = 1
+    else:
+        am_offset = 0
+    if smap_overpass_correct[1] >= 24:
+        smap_overpass_correct[1] = smap_overpass_correct[1] - 24
+        pm_offset = -1
+    else:
+        pm_offset = 0
+    timezone_offset = [am_offset, pm_offset]
+
+    smap_overpass_correct = [str(smap_overpass_correct[0]).zfill(2) + ':00',
+                             str(smap_overpass_correct[1]).zfill(2) + ':00']
 
     # Extract 6 AM/PM SM from current file
-    sm_array = np.empty((2, len(date_seq)), dtype='float32')  # 2-dim for storing AM/PM overpass SM
-    sm_array[:] = np.nan
+    # sm_array = np.empty((2, len(date_seq)), dtype='float32')  # 2-dim for storing AM/PM overpass SM
+    # sm_array[:] = np.nan
     # sm_array = np.copy(sm_array_init)
-    for itm in range(len(smap_overpass)):
-        datatime_match_ind = [data_list.index(i) for i in data_list if smap_overpass[itm] in i]
+
+    sm_array_all = []
+    for itm in range(len(smap_overpass_correct)):
+        sm_array = np.empty((len(date_seq)), dtype='float32')
+        sm_array[:] = np.nan
+        datatime_match_ind = [data_list.index(i) for i in data_list if smap_overpass_correct[itm] in i]
         datatime_match = [data_list[datatime_match_ind[i]] for i in range(len(datatime_match_ind))]
         datatime_match_date = [datatime_match[i].split()[0].replace('/', '') for i in range(len(datatime_match))]
 
         datatime_match_date_ind = [datatime_match_date.index(item) for item in datatime_match_date if item in date_seq]
         datatime_match_date_seq_ind = [date_seq.index(item) for item in datatime_match_date if item in date_seq]
+        datatime_match_date_seq_ind = np.array(datatime_match_date_seq_ind)
+        datatime_match_date_seq_ind = datatime_match_date_seq_ind + timezone_offset[itm] #adjust by timezone offset of am/pm
+        datatime_match_date_seq_ind = \
+            datatime_match_date_seq_ind[(datatime_match_date_seq_ind >= 0) | (datatime_match_date_seq_ind < len(date_seq))]
 
         if len(datatime_match_date_ind) != 0:
+            # Find the data values from the in situ data file
             sm_array_ext = [float(datatime_match[datatime_match_date_ind[i]].split()[12])
-                            for i in range(len(datatime_match_date_ind))]  # Find the data values from the in situ data file
-            sm_array[itm, datatime_match_date_seq_ind] = sm_array_ext  # Fill the data values to the corresponding place of date_seq
+                            for i in range(len(datatime_match_date_ind))]
+            # sm_array[itm, datatime_match_date_seq_ind] = sm_array_ext
+            # Fill the data values to the corresponding place of date_seq
+            sm_array[datatime_match_date_seq_ind] = sm_array_ext
+
         else:
             sm_array_ext = []
             pass
 
-        del(datatime_match_ind, datatime_match, datatime_match_date, datatime_match_date_ind, sm_array_ext)
+        sm_array_all.append(sm_array)
 
-    return net_name, stn_name, stn_lat, stn_lon, sm_array
+        del(datatime_match_ind, datatime_match, datatime_match_date, datatime_match_date_ind, sm_array_ext, sm_array)
 
+    sm_array_all = np.stack(sm_array_all, axis=0)
+    sm_array_all[sm_array_all < 0] = np.nan
+
+    return net_name, stn_name, stn_lat, stn_lon, sm_array_all
 
 ####################################################################################################################################
 
@@ -65,36 +104,35 @@ def insitu_extraction(filepath):
 # Path of current workspace
 path_workspace = '/Users/binfang/Documents/SMAP_Project/smap_codes'
 # Path of model data
-path_model = '/Volumes/MyPassport/SMAP_Project/Datasets/model_data'
-# Path of downscaled SM
-path_smap_sm_ds = '/Users/binfang/Downloads/Processing/Downscale'
-# Path of in-situ data
-path_insitu = '/Users/binfang/Documents/SMAP_Project/data/insitu_data'
+path_model = '/Volumes/Elements/Datasets/model_data'
 # Path of results
-path_results = '/Users/binfang/Documents/SMAP_Project/results/results_201204'
-# Path of 9 km SMAP SM
-path_smap = '/Volumes/MyPassport/SMAP_Project/Datasets/SMAP'
+path_results = '/Users/binfang/Documents/SMAP_Project/results/results_220107'
+# Path of SMAP SM
+path_smap = '/Volumes/Elements/Datasets/SMAP'
 # Path of validation data
-path_validation = '/Volumes/MyPassport/SMAP_Project/Datasets/processed_data'
+path_validation = '/Volumes/Elements/Datasets/processed_data'
 # Path of ISMN data
-path_ismn = '/Volumes/MyPassport/SMAP_Project/Datasets/ISMN'
+path_ismn = '/Volumes/Elements/Datasets/ISMN'
 # Path of GPM
-path_gpm = '/Volumes/MyPassport/SMAP_Project/Datasets/GPM'
+path_gpm = '/Volumes/Elements/Datasets/GPM'
+# Path of mask
+path_lmask = '/Volumes/Elements/Datasets/Lmask'
 
 lst_folder = '/MYD11A1/'
 ndvi_folder = '/MYD13A2/'
 smap_sm_9km_name = ['smap_sm_9km_am_slice', 'smap_sm_9km_pm_slice']
-region_name = ['Oceania', 'Europe', 'SouthAmerica', 'Africa', 'Asia', 'NorthAmerica']
-smap_overpass = ['06:00', '18:00']
-yearname = np.linspace(2015, 2020, 6, dtype='int')
+region_name = ['Africa', 'Asia', 'Europe', 'NorthAmerica', 'Oceania', 'SouthAmerica']
+# smap_overpass = ['06:00', '18:00']
+smap_overpass = np.array([6, 18], dtype='int')
+yearname = np.linspace(2010, 2021, 12, dtype='int')
 monthnum = np.linspace(1, 12, 12, dtype='int')
 monthname = np.arange(1, 13)
 monthname = [str(i).zfill(2) for i in monthname]
 
 # Generate a sequence of string between start and end dates (Year + DOY)
-start_date = '2015-04-01'
-end_date = '2020-12-31'
-year = 2020 - 2015 + 1
+start_date = '2010-01-01'
+end_date = '2021-12-31'
+year = 2020 - 2010 + 1
 
 start_date = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
 end_date = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
@@ -108,7 +146,7 @@ for i in range(delta_date.days + 1):
     date_seq_doy.append(str(date_str.timetuple().tm_year) + str(date_str.timetuple().tm_yday).zfill(3))
 
 # Count how many days for a specific year
-yearname = np.linspace(2015, 2020, 6, dtype='int')
+yearname = np.linspace(2010, 2021, 12, dtype='int')
 monthnum = np.linspace(1, 12, 12, dtype='int')
 monthname = np.arange(1, 13)
 monthname = [str(i).zfill(2) for i in monthname]
@@ -150,7 +188,7 @@ os.chdir(path_workspace)
 f = h5py.File("ds_parameters.hdf5", "r")
 varname_list = ['lat_world_max', 'lat_world_min', 'lon_world_max', 'lon_world_min',
                 'lat_world_ease_9km', 'lon_world_ease_9km', 'lat_world_ease_1km', 'lon_world_ease_1km',
-                'lat_world_geo_10km', 'lon_world_geo_10km',]
+                'lat_world_geo_10km', 'lon_world_geo_10km']
 
 for x in range(len(varname_list)):
     var_obj = f[varname_list[x]][()]
@@ -158,19 +196,36 @@ for x in range(len(varname_list)):
     del(var_obj)
 f.close()
 
+# # Generate land/water mask provided by GLDAS/NASA
+# os.chdir(path_lmask)
+# lmask_file = open('EASE2_M09km.LOCImask_land50_coast0km.3856x1624.bin', 'r')
+# lmask_ease_9km = np.fromfile(lmask_file, dtype=np.dtype('uint8'))
+# lmask_ease_9km = np.reshape(lmask_ease_9km, [len(lat_world_ease_9km), len(lon_world_ease_9km)]).astype(float)
+# lmask_ease_9km[np.where(lmask_ease_9km != 0)] = np.nan
+# lmask_ease_9km[np.where(lmask_ease_9km == 0)] = 1
+# # lmask_ease_25km[np.where((lmask_ease_25km == 101) | (lmask_ease_25km == 255))] = 0
+# lmask_file.close()
+# ind_lmask_9km = np.where(lmask_ease_9km == 1)[0]
+# ind_lmask_9km_linear = np.ravel_multi_index(ind_lmask_9km, (len(lat_world_ease_9km),len(lon_world_ease_9km)))
+# len_landtotal_9km = len(ind_lmask_9km[0])
 
 ####################################################################################################################################
 # 1.1 Extract SM in situ data from ISMN .stm files
+# path_ismn = '/Users/binfang/Downloads/ISMN'
+# region_name = 'Africa'
 
 columns = ['lat', 'lon'] + date_seq_doy
-folder_region = sorted(glob.glob(path_ismn + '/Ver_2/*/'))
+# folder_region = os.listdir(path_ismn + '/original_data/')
+# folder_region = sorted(folder_region)
+folder_region = sorted(glob.glob(path_ismn + '/original_data/*'))
 
 for ire in range(len(folder_region)): # Region (Continent) folders
-    folder_network = sorted([name for name in os.listdir(folder_region[ire]) if os.path.isdir(os.path.join(folder_region[ire], name))])
+    folder_network = sorted([name for name in os.listdir(folder_region[ire])
+                             if os.path.isdir(os.path.join(folder_region[ire], name))])
 
     for inw in range(len(folder_network)): # Network folders
-        folder_site = sorted([name for name in os.listdir(folder_region[ire]+folder_network[inw])
-                       if os.path.isdir(os.path.join(folder_region[ire]+folder_network[inw], name))])
+        folder_site = sorted([name for name in os.listdir(folder_region[ire] + '/' + folder_network[inw])
+                       if os.path.isdir(os.path.join(folder_region[ire]+ '/' + folder_network[inw], name))])
 
         stn_name_all = []
         stn_lat_all = []
@@ -178,7 +233,7 @@ for ire in range(len(folder_region)): # Region (Continent) folders
         sm_array_am_all = []
         sm_array_pm_all = []
         for ist in range(len(folder_site)): # Site folders
-            sm_file_path = folder_region[ire] + folder_network[inw] + '/' + folder_site[ist]
+            sm_file_path = folder_region[ire] + '/' + folder_network[inw] + '/' + folder_site[ist]
             sm_file_list = sorted(glob.glob(sm_file_path + '/*_sm_*'))
             if len(sm_file_list) != 0:
                 sm_file = sm_file_list[0]
@@ -208,7 +263,8 @@ for ire in range(len(folder_region)): # Region (Continent) folders
 
         df_sm_am = pd.DataFrame(sm_mat_am, columns=columns, index=stn_name_all)
         df_sm_pm = pd.DataFrame(sm_mat_pm, columns=columns, index=stn_name_all)
-        writer = pd.ExcelWriter(path_ismn + '/processed_data/' + region_name[ire] + '_' + folder_network[inw] + '_' + 'ismn_sm.xlsx')
+        writer = pd.ExcelWriter(path_ismn + '/processed_data/' + region_name[ire] + '_' + folder_network[inw] + '_' +
+                                'ismn_sm.xlsx')
         df_sm_am.to_excel(writer, sheet_name='AM')
         df_sm_pm.to_excel(writer, sheet_name='PM')
         writer.save()
@@ -219,19 +275,22 @@ for ire in range(len(folder_region)): # Region (Continent) folders
 
 # 1.2 Extract Land cover types and main soil types
 # folder_region = sorted(glob.glob('/Volumes/MyPassport/SMAP_Project/Datasets/ISMN/*/'))
+folder_region = sorted(glob.glob(path_ismn + '/original_data/*'))
 
 for ire in range(len(folder_region)): # Region folders
-    folder_network = sorted([name for name in os.listdir(folder_region[ire]) if os.path.isdir(os.path.join(folder_region[ire], name))])
+    folder_network = sorted([name for name in os.listdir(folder_region[ire])
+                             if os.path.isdir(os.path.join(folder_region[ire], name))])
 
     for inw in range(len(folder_network)): # Network folders
-        folder_site = sorted([name for name in os.listdir(folder_region[ire]+folder_network[inw])
-                       if os.path.isdir(os.path.join(folder_region[ire]+folder_network[inw], name))])
+        folder_site = sorted([name for name in os.listdir(folder_region[ire] + '/' + folder_network[inw])
+                       if os.path.isdir(os.path.join(folder_region[ire] + '/' + folder_network[inw], name))])
 
         stn_name_all = []
         landcover_all = []
         soiltype_all = []
+        climate_class_all = []
         for ist in range(len(folder_site)): # Site folders
-            csv_file_path = folder_region[ire] + folder_network[inw] + '/' + folder_site[ist]
+            csv_file_path = folder_region[ire] + '/' + folder_network[inw] + '/' + folder_site[ist]
             csv_file_list = glob.glob(csv_file_path + '/*.csv')
             # stn_name = folder_site[ist]
             sm_file_list = glob.glob(csv_file_path + '/*_sm_*')
@@ -246,28 +305,33 @@ for ire in range(len(folder_region)): # Region folders
                     soiltype_array = df_file.loc[['clay fraction', 'sand fraction', 'silt fraction']]['value']
                     soiltype_array = [float(soiltype_array[x]) for x in range(len(soiltype_array))]
                     soiltype_ratio = np.array([soiltype_array[x*2]+soiltype_array[x*2+1] for x in range(2)])
-                    soiltype = ['clay fraction', 'sand fraction', 'silt fraction'][np.where(soiltype_ratio == np.max(soiltype_ratio))[0][0].item()]
+                    soiltype = ['clay fraction', 'sand fraction', 'silt fraction']\
+                        [np.where(soiltype_ratio == np.max(soiltype_ratio))[0][0].item()]
+                    climate_class = df_file.loc['climate classification']['description']
 
                     landcover_all.append(landcover)
                     soiltype_all.append(soiltype)
+                    climate_class_all.append(climate_class)
                     # stn_name_all.append(stn_name)
                     print(csv_file_list[0])
 
                 else:
                     landcover_all.append('')
                     soiltype_all.append('')
+                    climate_class_all.append('')
 
                 stn_name_all.append(stn_name)
 
             else:
                 pass
 
-        df_landcover = pd.DataFrame({'land cover': landcover_all, 'soiltype': soiltype_all}, index=stn_name_all)
+        df_landcover = pd.DataFrame({'land cover': landcover_all, 'soiltype': soiltype_all, 'climate': climate_class_all},
+                                    index=stn_name_all)
         writer = pd.ExcelWriter(path_ismn + '/landcover/' + region_name[ire] + '_' + folder_network[inw] + '_' + 'landcover.xlsx')
         df_landcover.to_excel(writer)
         writer.save()
 
-        del(df_landcover, writer)
+        del(df_landcover, writer, landcover_all, soiltype_all, climate_class_all)
 
 
 
@@ -283,18 +347,22 @@ for ife in range(len(ismn_list)):
     df_table_am = pd.read_excel(ismn_list[ife], index_col=0, sheet_name='AM')
     df_table_pm = pd.read_excel(ismn_list[ife], index_col=0, sheet_name='PM')
 
+    contname = os.path.basename(ismn_list[ife]).split('_')[0]
+    contname = [contname] * df_table_am.shape[0]
     netname = os.path.basename(ismn_list[ife]).split('_')[1]
     netname = [netname] * df_table_am.shape[0]
     coords = df_table_am[['lat', 'lon']]
     coords_all.append(coords)
 
     df_table_am_value = df_table_am.iloc[:, 2:]
-    df_table_am_value.insert(0, 'network', netname)
+    df_table_am_value.insert(0, 'continent', contname)
+    df_table_am_value.insert(1, 'network', netname)
     df_table_pm_value = df_table_pm.iloc[:, 2:]
-    df_table_pm_value.insert(0, 'network', netname)
+    df_table_pm_value.insert(0, 'continent', contname)
+    df_table_pm_value.insert(1, 'network', netname)
     df_table_am_all.append(df_table_am_value)
     df_table_pm_all.append(df_table_pm_value)
-    del(df_table_am, df_table_pm, df_table_am_value, df_table_pm_value, coords, netname)
+    del(df_table_am, df_table_pm, df_table_am_value, df_table_pm_value, coords, netname, contname)
     print(ife)
 
 df_coords = pd.concat(coords_all)
@@ -306,6 +374,12 @@ new_index = [df_coords.index[x] for x in range(len(df_coords.index))] # Capitali
 df_coords.index = new_index
 df_table_am_all.index = new_index
 df_table_pm_all.index = new_index
+df_coords = pd.concat([df_table_am_all['continent'], df_table_am_all['network'], df_coords], axis=1)
+
+
+# writer = pd.ExcelWriter(path_results + '/validation/df_coords.xlsx')
+# df_coords.to_excel(writer)
+# writer.save()
 
 
 # 2.2 Locate the SMAP 1/9 km SM positions by lat/lon of in-situ data
@@ -328,15 +402,20 @@ for idt in range(len(stn_lat_all)):
     del(stn_row_1km_ind, stn_col_1km_ind, stn_row_9km_ind, stn_col_9km_ind)
 
 
+# Convert from Lat/Lon coordinates to EASE grid projection meter units
+transformer = Transformer.from_crs("epsg:4326", "epsg:6933", always_xy=True)
+[stn_lon_all_ease, stn_lat_all_ease] = transformer.transform(stn_lon_all, stn_lat_all)
+coords_zip = list(map(list, zip(stn_lon_all_ease, stn_lat_all_ease)))
+
 ########################################################################################################################
 # 3. Extract the SMAP 1/9 km SM by the indexing files
 
 # 3.1 Extract 1km SMAP SM
 smap_1km_sta_all = []
 tif_files_1km_name_ind_all = []
-for iyr in range(len(yearname)):
+for iyr in range(5, len(yearname)):
 
-    os.chdir(path_smap +'/1km' + '/gldas/' + str(yearname[iyr]))
+    os.chdir(path_smap +'/1km/' + str(yearname[iyr]))
     tif_files = sorted(glob.glob('*.tif'))
 
     # Extract the file name
@@ -349,10 +428,15 @@ for iyr in range(len(yearname)):
 
     smap_1km_sta_1year = []
     for idt in range(len(date_seq_doy_1year_ind)):
-        src_tf = rasterio.open(tif_files[date_seq_doy_1year_ind[idt]]).read()
-        smap_1km_sta_1day = src_tf[:, stn_row_1km_ind_all, stn_col_1km_ind_all]
+        # src_tf = rasterio.open(tif_files[date_seq_doy_1year_ind[idt]]).read()
+        # smap_1km_sta_1day = src_tf[:, stn_row_1km_ind_all, stn_col_1km_ind_all]
+        src_tf = rasterio.open(tif_files[date_seq_doy_1year_ind[idt]])
+        smap_1km_sta_1day_am = np.array([sample[0] for sample in src_tf.sample(coords_zip, indexes=1)])
+        smap_1km_sta_1day_pm = np.array([sample[0] for sample in src_tf.sample(coords_zip, indexes=2)])
+        smap_1km_sta_1day = np.stack((smap_1km_sta_1day_am, smap_1km_sta_1day_pm), axis=0)
+
         smap_1km_sta_1year.append(smap_1km_sta_1day)
-        del(src_tf, smap_1km_sta_1day)
+        del(src_tf, smap_1km_sta_1day, smap_1km_sta_1day_am, smap_1km_sta_1day_pm)
         print(tif_files[date_seq_doy_1year_ind[idt]])
 
     smap_1km_sta_all.append(smap_1km_sta_1year)
@@ -376,18 +460,25 @@ for idt in range(len(tif_files_1km_name_ind_all)):
 
 index_validation = df_table_am_all.index
 columns_validation = df_table_am_all.columns
+continent_validation = df_table_am_all[['continent']]
 network_validation = df_table_am_all[['network']]
 
 smap_1km_sta_am = pd.DataFrame(smap_1km_sta_am, columns=date_seq_doy, index=index_validation)
-df_smap_1km_sta_am = pd.concat([network_validation, smap_1km_sta_am], axis=1, sort=False)
+df_smap_1km_sta_am = pd.concat([continent_validation, network_validation, smap_1km_sta_am], axis=1, sort=False)
 smap_1km_sta_pm = pd.DataFrame(smap_1km_sta_pm, columns=date_seq_doy, index=index_validation)
-df_smap_1km_sta_pm = pd.concat([network_validation, smap_1km_sta_pm], axis=1, sort=False)
+df_smap_1km_sta_pm = pd.concat([continent_validation, network_validation, smap_1km_sta_pm], axis=1, sort=False)
+
+columns_drop = columns[2:1918]
+df_smap_1km_sta_am = df_smap_1km_sta_am.drop(columns=columns_drop)
+df_smap_1km_sta_pm = df_smap_1km_sta_pm.drop(columns=columns_drop)
+df_insitu_table_am_all = df_table_am_all.drop(columns=columns_drop)
+df_insitu_table_pm_all = df_table_pm_all.drop(columns=columns_drop)
 
 
 # 3.2 Extract 9km SMAP SM
 smap_9km_sta_am = []
 smap_9km_sta_pm = []
-for iyr in range(len(yearname)):
+for iyr in range(5, len(yearname)):
 
     smap_9km_sta_am_1year = []
     smap_9km_sta_pm_1year = []
@@ -431,19 +522,19 @@ smap_9km_sta_am = np.concatenate(smap_9km_sta_am, axis=1)
 smap_9km_sta_pm = list(itertools.chain(*smap_9km_sta_pm))
 smap_9km_sta_pm = np.concatenate(smap_9km_sta_pm, axis=1)
 
-smap_9km_sta_am = pd.DataFrame(smap_9km_sta_am, columns=date_seq_doy, index=index_validation)
-df_smap_9km_sta_am = pd.concat([network_validation, smap_9km_sta_am], axis=1, sort=False)
-smap_9km_sta_pm = pd.DataFrame(smap_9km_sta_pm, columns=date_seq_doy, index=index_validation)
-df_smap_9km_sta_pm = pd.concat([network_validation, smap_9km_sta_pm], axis=1, sort=False)
+smap_9km_sta_am = pd.DataFrame(smap_9km_sta_am, columns=date_seq_doy[1916:], index=index_validation)
+df_smap_9km_sta_am = pd.concat([continent_validation, network_validation, smap_9km_sta_am], axis=1, sort=False)
+smap_9km_sta_pm = pd.DataFrame(smap_9km_sta_pm, columns=date_seq_doy[1916:], index=index_validation)
+df_smap_9km_sta_pm = pd.concat([continent_validation, network_validation, smap_9km_sta_pm], axis=1, sort=False)
 
 
 # Save variables
-writer_insitu = pd.ExcelWriter(path_ismn + '/extraction/smap_validation_insitu.xlsx')
-writer_1km = pd.ExcelWriter(path_ismn + '/extraction/smap_validation_1km.xlsx')
-writer_9km = pd.ExcelWriter(path_ismn + '/extraction/smap_validation_9km.xlsx')
+writer_insitu = pd.ExcelWriter(path_ismn + '/extraction/smap_validation_insitu_new.xlsx')
+writer_1km = pd.ExcelWriter(path_ismn + '/extraction/smap_validation_1km_new.xlsx')
+writer_9km = pd.ExcelWriter(path_ismn + '/extraction/smap_validation_9km_new.xlsx')
 writer_coords = pd.ExcelWriter(path_ismn + '/extraction/smap_coords.xlsx')
-df_table_am_all.to_excel(writer_insitu, sheet_name='AM')
-df_table_pm_all.to_excel(writer_insitu, sheet_name='PM')
+df_insitu_table_am_all.to_excel(writer_insitu, sheet_name='AM')
+df_insitu_table_pm_all.to_excel(writer_insitu, sheet_name='PM')
 df_smap_1km_sta_am.to_excel(writer_1km, sheet_name='AM')
 df_smap_1km_sta_pm.to_excel(writer_1km, sheet_name='PM')
 df_smap_9km_sta_am.to_excel(writer_9km, sheet_name='AM')
@@ -512,14 +603,30 @@ writer_gpm.save()
 #     del(var_obj)
 # f.close()
 
-df_smap_insitu_sta_am = pd.read_excel(path_ismn + '/extraction/smap_validation_insitu.xlsx', index_col=0, sheet_name='AM')
-df_smap_1km_sta_am = pd.read_excel(path_ismn + '/extraction/smap_validation_1km.xlsx', index_col=0, sheet_name='AM')
-df_smap_9km_sta_am = pd.read_excel(path_ismn + '/extraction/smap_validation_9km.xlsx', index_col=0, sheet_name='AM')
+df_smap_insitu_sta_am = pd.read_excel(path_ismn + '/extraction/smap_validation_insitu_new.xlsx', index_col=0, sheet_name='AM')
+df_smap_1km_sta_am = pd.read_excel(path_ismn + '/extraction/smap_validation_1km_new.xlsx', index_col=0, sheet_name='AM')
+# df_smap_1km_sta_am_ori = pd.read_excel(path_ismn + '/extraction/smap_validation_1km_ori.xlsx', index_col=0, sheet_name='AM')
+df_smap_9km_sta_am = pd.read_excel(path_ismn + '/extraction/smap_validation_9km_new.xlsx', index_col=0, sheet_name='AM')
 df_smap_gpm = pd.read_excel(path_ismn + '/extraction/smap_validation_gpm.xlsx', index_col=0)
 size_validation = np.shape(df_smap_insitu_sta_am)
 stn_name = df_smap_insitu_sta_am.index
 network_name = df_smap_insitu_sta_am['network'].tolist()
 network_unique = df_smap_insitu_sta_am['network'].unique()
+network_all_group = [np.where(df_smap_1km_sta_am['network'] == network_unique[x]) for x in range(len(network_unique))]
+
+df_smap_stat_slc = pd.read_excel(path_results + '/validation/stat_slc_081721.xlsx', index_col=0)
+df_smap_stat_slc = df_smap_stat_slc.iloc[1:401, :]
+stn_name_slc = df_smap_stat_slc.index
+stn_name_slc_ind = [np.where(df_smap_1km_sta_am.index == stn_name_slc[x])[0][0] for x in range(len(stn_name_slc))]
+
+df_smap_insitu_sta_am_slc = df_smap_insitu_sta_am.iloc[stn_name_slc_ind, :]
+df_smap_1km_sta_am_slc = df_smap_1km_sta_am.iloc[stn_name_slc_ind, :]
+df_smap_1km_sta_am_slc_ori = df_smap_1km_sta_am_ori.iloc[stn_name_slc_ind, :]
+df_smap_9km_sta_am_slc = df_smap_9km_sta_am.iloc[stn_name_slc_ind, :]
+network_unique_slc = df_smap_1km_sta_am_slc['network'].unique()
+network_all_group_slc = [np.where(df_smap_1km_sta_am_slc['network'] == network_unique_slc[x])
+                         for x in range(len(network_unique_slc))]
+
 
 # Create folders for each network
 for ife in range(len(network_unique)):
@@ -529,10 +636,11 @@ for ife in range(len(network_unique)):
 stat_array_1km = []
 stat_array_9km = []
 ind_slc_all = []
-for ist in range(size_validation[0]):
-    x = np.array(df_smap_insitu_sta_am.iloc[ist, 1:], dtype=np.float)
-    y1 = np.array(df_smap_1km_sta_am.iloc[ist, 1:], dtype=np.float)
-    y2 = np.array(df_smap_9km_sta_am.iloc[ist, 1:], dtype=np.float)
+# for ist in range(size_validation[0]):
+for ist in range(len(stn_name_slc)):
+    x = np.array(df_smap_insitu_sta_am_slc.iloc[ist, 1:], dtype=np.float)
+    y1 = np.array(df_smap_1km_sta_am_slc.iloc[ist, 1:], dtype=np.float)
+    y2 = np.array(df_smap_9km_sta_am_slc.iloc[ist, 1:], dtype=np.float)
     x[x == 0] = np.nan
     y1[y1 == 0] = np.nan
     y2[y2 == 0] = np.nan
@@ -602,15 +710,15 @@ stat_array_1km = np.array(stat_array_1km)
 stat_array_9km = np.array(stat_array_9km)
 
 columns_validation = ['number', 'r_sq', 'ubrmse', 'stdev', 'bias', 'p_value', 'conf_int']
-index_validation = df_smap_1km_sta_am.index[ind_slc_all]
-network_validation = df_smap_1km_sta_am['network'].iloc[ind_slc_all]
+index_validation = df_smap_1km_sta_am_slc.index[ind_slc_all]
+network_validation = df_smap_1km_sta_am_slc['network'].iloc[ind_slc_all]
 
 df_stat_1km = pd.DataFrame(stat_array_1km, columns=columns_validation, index=index_validation)
 df_stat_9km = pd.DataFrame(stat_array_9km, columns=columns_validation, index=index_validation)
 df_stat_1km = pd.concat([network_validation, df_stat_1km], axis=1, sort=False)
 df_stat_9km = pd.concat([network_validation, df_stat_9km], axis=1, sort=False)
-writer_1km = pd.ExcelWriter(path_results + '/validation/stat_1km.xlsx')
-writer_9km = pd.ExcelWriter(path_results + '/validation/stat_9km.xlsx')
+writer_1km = pd.ExcelWriter(path_results + '/validation/stat_1km_new.xlsx')
+writer_9km = pd.ExcelWriter(path_results + '/validation/stat_9km_new.xlsx')
 df_stat_1km.to_excel(writer_1km)
 df_stat_9km.to_excel(writer_9km)
 writer_1km.save()
@@ -624,6 +732,9 @@ writer_9km.save()
 
 
 # 4.2 subplots
+df_stat_1km = pd.read_excel(path_results + '/validation/stat_1km.xlsx', index_col=0)
+df_stat_9km = pd.read_excel(path_results + '/validation/stat_9km.xlsx', index_col=0)
+
 # REMEDHUS: Carretoro, Casa_Periles, El_Tomillar, Granja_g, La_Atalaya, Las_Bodegas, Las_Vacas, Zamarron
 # REMEDHUS ID:382, 383, 386, 387, 389, 392, 396, 400
 # SOILSCAPE: node403, 404, 405, 406, 408, 415, 416, 417
@@ -702,8 +813,54 @@ for inw in range(len(site_ind)):
     plt.close(fig)
 
 
+# 4.3 Calculate SD for 1/9 km SM and in-situ
+spstd_x_all = []
+spstd_y1_all = []
+spstd_y2_all = []
+for inw in range(len(network_all_group_slc)):
+    x = np.array(df_smap_insitu_sta_am_slc.iloc[network_all_group_slc[inw][0].tolist(), 1:], dtype=np.float64)
+    y1 = np.array(df_smap_1km_sta_am_slc_ori.iloc[network_all_group_slc[inw][0].tolist(), 1:], dtype=np.float64)
+    y2 = np.array(df_smap_9km_sta_am_slc.iloc[network_all_group_slc[inw][0].tolist(), 1:], dtype=np.float64)
 
-# 4.3 Make the time-series plots
+    x_len = np.array([len(x[:, n][~np.isnan(x[:, n])]) for n in range(x.shape[1])])
+    x_len_ind = np.where(x_len >= 3)[0]
+    y1_len = np.array([len(y1[:, n][~np.isnan(y1[:, n])]) for n in range(y1.shape[1])])
+    y1_len_ind = np.where(y1_len >= 3)[0]
+    y2_len = np.array([len(y2[:, n][~np.isnan(y2[:, n])]) for n in range(y2.shape[1])])
+    y2_len_ind = np.where(y2_len >= 3)[0]
+
+    x_y1_ind = np.intersect1d(x_len_ind, y1_len_ind)
+    spstd_ind = np.intersect1d(x_y1_ind, y2_len_ind)
+
+    spstd_x = np.nanstd(x, axis=0)
+    spstd_y1 = np.nanstd(y1, axis=0)
+    spstd_y2 = np.nanstd(y2, axis=0)
+
+    spstd_x = np.nanmean(spstd_x[spstd_ind])
+    spstd_y1 = np.nanmean(spstd_y1[spstd_ind])
+    spstd_y2 = np.nanmean(spstd_y2[spstd_ind])
+
+    spstd_x_all.append(spstd_x)
+    spstd_y1_all.append(spstd_y1)
+    spstd_y2_all.append(spstd_y2)
+
+    del(x, y1, y2, x_len, x_len_ind, y1_len, y1_len_ind, y2_len, y2_len_ind, x_y1_ind, spstd_ind, spstd_x, spstd_y1, spstd_y2)
+    print(inw)
+
+spstd_x_all = np.array(spstd_x_all)
+spstd_y1_all = np.array(spstd_y1_all)
+spstd_y2_all = np.array(spstd_y2_all)
+spstd_all = np.stack([spstd_x_all, spstd_y1_all, spstd_y2_all], axis=1)
+
+# Save variables
+df_table_spstd = pd.DataFrame(spstd_all, columns=['in-situ', '1km', '9km'], index=network_unique_slc)
+writer_spstd = pd.ExcelWriter(path_results + '/validation/spstd_040622.xlsx')
+df_table_spstd.to_excel(writer_spstd)
+writer_spstd.save()
+
+
+
+# 4.4 Make the time-series plots
 # Generate index tables for calculating monthly averages
 monthly_seq = np.reshape(daysofmonth_seq, (1, -1), order='F')
 monthly_seq = monthly_seq[:, 3:] # Remove the first 3 months in 2015
@@ -726,6 +883,14 @@ smap_1km_am_monthly = np.stack(smap_1km_am_monthly, axis=0)
 smap_1km_am_monthly = np.transpose(smap_1km_am_monthly, (1, 0))
 smap_1km_am_monthly = smap_1km_am_monthly[:, :-1]
 smap_1km_am_monthly = np.concatenate([array_allnan, smap_1km_am_monthly], axis=1)
+
+smap_1km_am_split_ori = \
+    np.hsplit(np.array(df_smap_1km_sta_am_ori.iloc[:, 1:], dtype='float32'), monthly_seq_cumsum) # split by each month
+smap_1km_am_monthly_ori = [np.nanmean(smap_1km_am_split_ori[x], axis=1) for x in range(len(smap_1km_am_split_ori))]
+smap_1km_am_monthly_ori = np.stack(smap_1km_am_monthly_ori, axis=0)
+smap_1km_am_monthly_ori = np.transpose(smap_1km_am_monthly_ori, (1, 0))
+smap_1km_am_monthly_ori = smap_1km_am_monthly_ori[:, :-1]
+smap_1km_am_monthly_ori = np.concatenate([array_allnan, smap_1km_am_monthly_ori], axis=1)
 
 smap_9km_am_split = \
     np.hsplit(np.array(df_smap_9km_sta_am.iloc[:, 1:], dtype='float32'), monthly_seq_cumsum) # split by each month
@@ -759,7 +924,7 @@ for inw in [0]:#range(len(site_ind)):
 
         x = smap_insitu_am_monthly[site_ind[inw][ist], :]
         y1 = smap_1km_am_monthly[site_ind[inw][ist], :]
-        y2 = smap_9km_am_monthly[site_ind[inw][ist], :]
+        # y2 = smap_1km_am_monthly_ori[site_ind[inw][ist], :]
         z = smap_gpm_monthly[site_ind[inw][ist], :]
         # ind_nonnan = np.where(~np.isnan(x) & ~np.isnan(y1) & ~np.isnan(y2))[0]
         # x = x[ind_nonnan]
@@ -770,7 +935,7 @@ for inw in [0]:#range(len(site_ind)):
         ax = fig.add_subplot(4, 1, ist+1)
         lns1 = ax.plot(x, c='b', marker='s', label='In-situ', markersize=3, linestyle='--', linewidth=1)
         lns2 = ax.plot(y1, c='r', marker='o', label='1 km', markersize=3, linestyle='--', linewidth=1)
-        lns3 = ax.plot(y2, c='k', marker='^', label='9 km', markersize=3, linestyle='--', linewidth=1)
+        # lns3 = ax.plot(y2, c='k', marker='^', label='1 km', markersize=3, linestyle='--', linewidth=1)
         ax.text(0, 0.35, df_smap_1km_sta_am.index[site_ind[inw][ist]].replace('_', ' '), fontsize=11, fontweight='bold')
 
         plt.xlim(0, len(x))
@@ -795,14 +960,15 @@ for inw in [0]:#range(len(site_ind)):
         ax2.tick_params(axis='y', labelsize=10)
 
     # add all legends together
-    handles = lns1+lns2+lns3+[lns4]
+    # handles = lns1+lns2+lns3+[lns4]
+    handles = lns1 + lns2 + [lns4]
     labels = [l.get_label() for l in handles]
 
     plt.legend(handles, labels, loc=(0, 4.95), mode="expand", borderaxespad=0, ncol=4, prop={"size": 10})
-    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=16, fontweight='bold')
-    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=16, fontweight='bold')
-    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=16, fontweight='bold')
-    plt.suptitle(network_name[inw], fontsize=19, y=0.98, fontweight='bold')
+    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=14, fontweight='bold')
+    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=14, fontweight='bold')
+    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=14, fontweight='bold')
+    plt.suptitle(network_name[inw], fontsize=16, y=0.98, fontweight='bold')
     plt.savefig(path_results + '/validation/network_plots/' + network_name[inw] + '_tseries' + '.png')
     plt.close(fig)
 
@@ -816,7 +982,7 @@ for inw in [1]:#range(len(site_ind)):
 
         x = smap_insitu_am_monthly[site_ind[inw][ist], :]
         y1 = smap_1km_am_monthly[site_ind[inw][ist], :]
-        y2 = smap_9km_am_monthly[site_ind[inw][ist], :]
+        # y2 = smap_1km_am_monthly_ori[site_ind[inw][ist], :]
         z = smap_gpm_monthly[site_ind[inw][ist], :]
         # ind_nonnan = np.where(~np.isnan(x) & ~np.isnan(y1) & ~np.isnan(y2))[0]
         # x = x[ind_nonnan]
@@ -827,7 +993,7 @@ for inw in [1]:#range(len(site_ind)):
         ax = fig.add_subplot(4, 1, ist+1)
         lns1 = ax.plot(x, c='b', marker='s', label='In-situ', markersize=3, linestyle='--', linewidth=1)
         lns2 = ax.plot(y1, c='r', marker='o', label='1 km', markersize=3, linestyle='--', linewidth=1)
-        lns3 = ax.plot(y2, c='k', marker='^', label='9 km', markersize=3, linestyle='--', linewidth=1)
+        # lns3 = ax.plot(y2, c='k', marker='^', label='1 km', markersize=3, linestyle='--', linewidth=1)
         ax.text(0, 0.35, df_smap_1km_sta_am.index[site_ind[inw][ist]].replace('_', ' '), fontsize=11, fontweight='bold')
 
         plt.xlim(0, len(x))
@@ -852,14 +1018,14 @@ for inw in [1]:#range(len(site_ind)):
         ax2.tick_params(axis='y', labelsize=10)
 
     # add all legends together
-    handles = lns1+lns2+lns3+[lns4]
+    handles = lns1+lns2+[lns4]
     labels = [l.get_label() for l in handles]
 
     plt.legend(handles, labels, loc=(0, 4.95), mode="expand", borderaxespad=0, ncol=4, prop={"size": 10})
-    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=16, fontweight='bold')
-    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=16, fontweight='bold')
-    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=16, fontweight='bold')
-    plt.suptitle(network_name[inw], fontsize=19, y=0.98, fontweight='bold')
+    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=14, fontweight='bold')
+    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=14, fontweight='bold')
+    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=14, fontweight='bold')
+    plt.suptitle(network_name[inw], fontsize=16, y=0.98, fontweight='bold')
     plt.savefig(path_results + '/validation/network_plots/' + network_name[inw] + '_tseries' + '.png')
     plt.close(fig)
 
@@ -873,7 +1039,7 @@ for inw in [2]:#range(len(site_ind)):
 
         x = smap_insitu_am_monthly[site_ind[inw][ist], :]
         y1 = smap_1km_am_monthly[site_ind[inw][ist], :]
-        y2 = smap_9km_am_monthly[site_ind[inw][ist], :]
+        # y2 = smap_1km_am_monthly_ori[site_ind[inw][ist], :]
         z = smap_gpm_monthly[site_ind[inw][ist], :]
         # ind_nonnan = np.where(~np.isnan(x) & ~np.isnan(y1) & ~np.isnan(y2))[0]
         # x = x[ind_nonnan]
@@ -884,7 +1050,7 @@ for inw in [2]:#range(len(site_ind)):
         ax = fig.add_subplot(4, 1, ist+1)
         lns1 = ax.plot(x, c='b', marker='s', label='In-situ', markersize=3, linestyle='--', linewidth=1)
         lns2 = ax.plot(y1, c='r', marker='o', label='1 km', markersize=3, linestyle='--', linewidth=1)
-        lns3 = ax.plot(y2, c='k', marker='^', label='9 km', markersize=3, linestyle='--', linewidth=1)
+        # lns3 = ax.plot(y2, c='k', marker='^', label='1 km', markersize=3, linestyle='--', linewidth=1)
         ax.text(0, 0.45, df_smap_1km_sta_am.index[site_ind[inw][ist]].replace('_', ' '), fontsize=11, fontweight='bold')
 
         plt.xlim(0, len(x))
@@ -902,21 +1068,21 @@ for inw in [2]:#range(len(site_ind)):
         ax.grid(linestyle='--')
 
         ax2 = ax.twinx()
-        ax2.set_ylim(0, 50)
+        ax2.set_ylim(0, 60)
         ax2.invert_yaxis()
-        ax2.set_yticks(np.arange(0, 60, 10))
+        ax2.set_yticks(np.arange(0, 70, 12))
         lns4 = ax2.bar(np.arange(len(x)), z, width=0.8, color='cornflowerblue', label='Precipitation', alpha=0.5)
         ax2.tick_params(axis='y', labelsize=10)
 
     # add all legends together
-    handles = lns1+lns2+lns3+[lns4]
+    handles = lns1+lns2+[lns4]
     labels = [l.get_label() for l in handles]
 
     plt.legend(handles, labels, loc=(0, 4.95), mode="expand", borderaxespad=0, ncol=4, prop={"size": 10})
-    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=16, fontweight='bold')
-    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=16, fontweight='bold')
-    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=16, fontweight='bold')
-    plt.suptitle(network_name[inw], fontsize=19, y=0.98, fontweight='bold')
+    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=14, fontweight='bold')
+    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=14, fontweight='bold')
+    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=14, fontweight='bold')
+    plt.suptitle(network_name[inw], fontsize=16, y=0.98, fontweight='bold')
     plt.savefig(path_results + '/validation/network_plots/' + network_name[inw] + '_tseries' + '.png')
     plt.close(fig)
 
@@ -930,7 +1096,7 @@ for inw in [3]:#range(len(site_ind)):
 
         x = smap_insitu_am_monthly[site_ind[inw][ist], :]
         y1 = smap_1km_am_monthly[site_ind[inw][ist], :]
-        y2 = smap_9km_am_monthly[site_ind[inw][ist], :]
+        # y2 = smap_1km_am_monthly_ori[site_ind[inw][ist], :]
         z = smap_gpm_monthly[site_ind[inw][ist], :]
         # ind_nonnan = np.where(~np.isnan(x) & ~np.isnan(y1) & ~np.isnan(y2))[0]
         # x = x[ind_nonnan]
@@ -941,7 +1107,7 @@ for inw in [3]:#range(len(site_ind)):
         ax = fig.add_subplot(4, 1, ist+1)
         lns1 = ax.plot(x, c='b', marker='s', label='In-situ', markersize=3, linestyle='--', linewidth=1)
         lns2 = ax.plot(y1, c='r', marker='o', label='1 km', markersize=3, linestyle='--', linewidth=1)
-        lns3 = ax.plot(y2, c='k', marker='^', label='9 km', markersize=3, linestyle='--', linewidth=1)
+        # lns3 = ax.plot(y2, c='k', marker='^', label='1 km', markersize=3, linestyle='--', linewidth=1)
         ax.text(0, 0.45, df_smap_1km_sta_am.index[site_ind[inw][ist]].replace('_', ' '), fontsize=11, fontweight='bold')
 
         plt.xlim(0, len(x))
@@ -966,17 +1132,166 @@ for inw in [3]:#range(len(site_ind)):
         ax2.tick_params(axis='y', labelsize=10)
 
     # add all legends together
-    handles = lns1+lns2+lns3+[lns4]
+    handles = lns1+lns2+[lns4]
     labels = [l.get_label() for l in handles]
 
     plt.legend(handles, labels, loc=(0, 4.95), mode="expand", borderaxespad=0, ncol=4, prop={"size": 10})
-    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=16, fontweight='bold')
-    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=16, fontweight='bold')
-    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=16, fontweight='bold')
-    plt.suptitle(network_name[inw], fontsize=19, y=0.98, fontweight='bold')
+    fig.text(0.5, 0.02, 'Years', ha='center', fontsize=14, fontweight='bold')
+    fig.text(0.02, 0.4, 'SM ($\mathregular{m^3/m^3)}$', rotation='vertical', fontsize=14, fontweight='bold')
+    fig.text(0.96, 0.4, 'GPM Precipitation (mm)', rotation='vertical', fontsize=14, fontweight='bold')
+    plt.suptitle(network_name[inw], fontsize=16, y=0.98, fontweight='bold')
     plt.savefig(path_results + '/validation/network_plots/' + network_name[inw] + '_tseries' + '.png')
     plt.close(fig)
 
+
+########################################################################################################################
+# 5. Make the world map of R2
+df_coords = pd.read_excel(path_results + '/validation/df_coords.xlsx', index_col=0)
+df_stat_slc = pd.read_excel(path_results + '/validation/stat_slc_plot.xlsx', index_col=0)
+stn_coords_ind = [np.where(df_coords.index == df_stat_slc.index[x])[0][0] for x in range(len(df_stat_slc))]
+df_coords.iloc[stn_coords_ind].to_csv(path_results + '/validation/df_coords_slc.csv', index=True)
+
+
+########################################################################################################################
+# 6. Count the spatial coverage of SM data
+len_landtotal_1km = 132848945
+len_landtotal_9km = 1616171
+
+# 6.1 Extract 1km SMAP SM
+nonnan_rate_1km_all = []
+tif_files_1km_name_ind_all = []
+for iyr in range(len(yearname)):
+
+    os.chdir(path_smap +'/1km' + '/gldas_old_data/' + str(yearname[iyr]))
+    tif_files = sorted(glob.glob('*.tif'))
+
+    # Extract the file name
+    tif_files_name = [os.path.splitext(tif_files[x])[0].split('_')[-1] for x in range(len(tif_files))]
+    tif_files_name_1year_ind = [date_seq_doy.index(item) for item in tif_files_name if item in date_seq_doy]
+    date_seq_doy_1year_ind = [tif_files_name.index(item) for item in tif_files_name if item in date_seq_doy]
+
+    tif_files_1km_name_ind_all.append(tif_files_name_1year_ind)
+    del(tif_files_name, tif_files_name_1year_ind)
+
+    nonnan_rate_1km_1year = []
+    for idt in range(len(date_seq_doy_1year_ind)):
+        src_tf = rasterio.open(tif_files[date_seq_doy_1year_ind[idt]]).read()
+        src_tf = np.nanmean(src_tf, axis=0)
+        len_nonnan_1km = len(np.where(~np.isnan(src_tf))[0])
+        nonnan_rate_1km = len_nonnan_1km/len_landtotal_1km
+        nonnan_rate_1km_1year.append(nonnan_rate_1km)
+        del(src_tf, len_nonnan_1km, nonnan_rate_1km)
+        print(tif_files[date_seq_doy_1year_ind[idt]])
+
+    nonnan_rate_1km_all.append(nonnan_rate_1km_1year)
+    del(nonnan_rate_1km_1year, date_seq_doy_1year_ind)
+
+
+tif_files_1km_name_ind_all = np.concatenate(tif_files_1km_name_ind_all)
+nonnan_rate_1km_all = np.concatenate(nonnan_rate_1km_all)
+
+nonnan_rate_1km_all_filled = np.empty(len(date_seq_doy))
+nonnan_rate_1km_all_filled[:] = np.nan
+nonnan_rate_1km_all_filled[tif_files_1km_name_ind_all] = nonnan_rate_1km_all
+matrix_zero = np.zeros(90)
+nonnan_rate_1km_all_filled = np.concatenate((matrix_zero, nonnan_rate_1km_all_filled))
+nonnan_rate_1km_all_filled[nonnan_rate_1km_all_filled == 0] = np.nan
+
+# Save variables
+df_nonnan_rate_1km_all = pd.DataFrame(nonnan_rate_1km_all_filled)
+writer = pd.ExcelWriter(path_results + '/validation/df_nonnan_rate_1km.xlsx')
+df_nonnan_rate_1km_all.to_excel(writer)
+writer.save()
+
+
+# 6.2 Extract 9km SMAP SM
+nonnan_rate_9km_all = []
+for iyr in range(len(yearname)):
+
+    nonnan_rate_9km_1year = []
+    for imo in range(len(monthname)):
+
+        nonnan_rate_9km_1month = []
+        # Load in SMAP 9km SM data
+        smap_file_path = path_smap + '/9km/' + 'smap_sm_9km_' + str(yearname[iyr]) + monthname[imo] + '.hdf5'
+
+        # Find the if the file exists in the directory
+        if os.path.exists(smap_file_path) == True:
+
+            f_smap_9km = h5py.File(smap_file_path, "r")
+            varname_list_smap = list(f_smap_9km.keys())
+            smap_9km_am = f_smap_9km[varname_list_smap[0]][()]
+            smap_9km_pm = f_smap_9km[varname_list_smap[1]][()]
+            smap_9km = np.nanmean(np.stack((smap_9km_am, smap_9km_pm), axis=0), axis=0)
+            smap_9km = np.reshape(smap_9km, (smap_9km.shape[0]*smap_9km.shape[1], smap_9km.shape[2]))
+            smap_9km_land = smap_9km[ind_lmask_9km_linear, :]
+            ind_nonnan_9km = \
+                np.array([len(np.where(~np.isnan(smap_9km_land[:, x]))[0]) for x in range(smap_9km_land.shape[1])])
+            nonnan_rate_9km_1month = ind_nonnan_9km/len_landtotal_9km
+
+            print(smap_file_path)
+            f_smap_9km.close()
+            del(smap_9km_am, smap_9km_pm, smap_9km, smap_9km_land, ind_nonnan_9km)
+
+        else:
+            pass
+
+        nonnan_rate_9km_1year.append(nonnan_rate_9km_1month)
+        del(nonnan_rate_9km_1month)
+
+    nonnan_rate_9km_all.append(nonnan_rate_9km_1year)
+    del(nonnan_rate_9km_1year)
+
+# nonnan_rate_9km_all_copy = nonnan_rate_9km_all
+nonnan_rate_9km_all = list(itertools.chain(*nonnan_rate_9km_all))
+nonnan_rate_9km_all = nonnan_rate_9km_all[3:]
+nonnan_rate_9km_all = np.concatenate(nonnan_rate_9km_all)
+matrix_zero = np.zeros(90)
+nonnan_rate_9km_all = np.concatenate((matrix_zero, nonnan_rate_9km_all))
+nonnan_rate_9km_all[nonnan_rate_9km_all == 0] = np.nan
+
+# Save variables
+df_nonnan_rate_9km_all = pd.DataFrame(nonnan_rate_9km_all)
+writer = pd.ExcelWriter(path_results + '/validation/df_nonnan_rate_9km.xlsx')
+df_nonnan_rate_9km_all.to_excel(writer)
+writer.save()
+
+
+nonnan_rate_1km_all_filled = pd.read_excel(path_results + '/validation/df_nonnan_rate_1km.xlsx', index_col=0)
+nonnan_rate_9km_all = pd.read_excel(path_results + '/validation/df_nonnan_rate_9km.xlsx', index_col=0)
+
+
+# Make a plot
+fig = plt.figure(figsize=(20, 5), dpi=200)
+plt.subplots_adjust(left=0.12, right=0.88, bottom=0.12, top=0.9, hspace=0.3, wspace=0.25)
+ax = fig.add_subplot(1, 1, 1)
+x = nonnan_rate_1km_all_filled*100
+y = nonnan_rate_9km_all*100
+lns1 = ax.plot(x, c='r', marker='s', label='1 km', markersize=1, linestyle='None')
+lns2 = ax.plot(y, c='k', marker='o', label='9 km', markersize=1, linestyle='None')
+plt.xlim(0, len(x))
+ax.set_xticks(np.arange(0, len(x) + 12, len(x) // 6))
+ax.set_xticklabels([])
+labels = ['2015', '2016', '2017', '2018', '2019', '2020']
+mticks = ax.get_xticks()
+ax.set_xticks((mticks[:-1] + mticks[1:]) / 2, minor=True)
+ax.tick_params(axis='x', which='minor', length=0)
+ax.set_xticklabels(labels, minor=True)
+
+plt.ylim(0, 80)
+ax.set_yticks(np.arange(0, 90, 10))
+ax.tick_params(axis='y', labelsize=10)
+ax.grid(linestyle='--')
+
+# add all legends together
+handles = lns1 + lns2
+labels = [l.get_label() for l in handles]
+
+plt.legend(handles, labels, loc=(0.33, 1.01), borderaxespad=0, ncol=2, prop={"size": 10})
+fig.text(0.5, 0.02, 'Years', ha='center', fontsize=14, fontweight='bold')
+fig.text(0.02, 0.4, 'Coverage (%)', rotation='vertical', fontsize=14, fontweight='bold')
+plt.savefig(path_results + '/coverage_rate_new.png')
+plt.close(fig)
 
 
 

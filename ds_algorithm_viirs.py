@@ -8,6 +8,7 @@ import calendar
 import gzip
 import gdal
 import osr
+import tarfile
 from pyproj import Transformer
 import rasterio
 from rasterio.transform import Affine
@@ -201,21 +202,22 @@ viirs_mat_fill[:] = np.nan
 
 
 ########################################################################################################################
-# 1. Combine tile data by day
+# 1.1 Combine tile data by day
 tile_name_full = ['T' + str(x).zfill(3) for x in range(1, 217)]
 utc_converter = np.tile(np.arange(-11, 13), 9)
 overpass_name = ['_night', '_day']
 
 for iyr in [12]:#range(len(yearname)):
-    tile_name = sorted(glob.glob(path_viirs_lst + '/' + str(yearname[iyr]) + '/*/', recursive=True))
-    tile_name_base = [tile_name[x].split('/')[-2] for x in range(len(tile_name))]
-    tile_name_ind = [int(tile_name[x].split('/')[-2][1:])-1 for x in range(len(tile_name))]
+    tile_name = sorted(glob.glob(path_viirs_lst + str(yearname[iyr]) + '/*', recursive=True))
+    tile_name_base = [tile_name[x].split('/')[-1].split('.')[0][-4:] for x in range(len(tile_name))]
+    tile_name_ind = [int(tile_name[x].split('/')[-1].split('.')[0][-4:][1:])-1 for x in range(len(tile_name))]
     tile_time_convert = utc_converter[tile_name_ind]
     overpass_time = (np.repeat(date_seq_array_cumsum[iyr], 2) * 10000 +
                      np.tile([130, 1330], len(date_seq_array_cumsum[iyr])))
 
     for ite in range(len(tile_name)):
-        viirs_files = sorted(glob.glob(tile_name[ite] + '/' + '*.gz'))
+        tar = tarfile.open(tile_name[ite], 'r')
+        viirs_files = tar.getnames()
         viirs_files_time = [viirs_files[x].split('.')[0][-12:].replace('_', '') for x in range(len(viirs_files))]
         viirs_files_time_local = [datetime.datetime.strptime(viirs_files_time[x], '%Y%j%H%M') +
                                   datetime.timedelta(hours=int(tile_time_convert[ite])) for x in range(len(viirs_files_time))]
@@ -230,42 +232,44 @@ for iyr in [12]:#range(len(yearname)):
         overpass_time_ind_group = df_overpass_time_ind.groupby(by='number').groups
         overpass_time_ind_group_ind = [value[1].tolist() for value in overpass_time_ind_group.items()]
 
-        viirs_mat_all = []
-        for ife in range(len(viirs_files)):
-            with gzip.open(viirs_files[ife], 'rb') as file:
-                viirs_mat = np.frombuffer(file.read(), dtype='f')
-                viirs_mat = np.reshape(viirs_mat, (3750, 3750)).copy()
-                viirs_mat[viirs_mat == -9999] = np.nan
-                viirs_mat_all.append(viirs_mat)
-                del(viirs_mat)
-            file.close()
-            # print(ife)
-
-        # Write combined viirs daily data to file
-        viirs_tile_output_path = path_lst_geo + '/LST/' + str(yearname[iyr]) + '/' + tile_name_base[ite] + '/'
+        # Create the folder for tile data
+        viirs_tile_output_path = path_lst_geo + str(yearname[iyr]) + '/' + tile_name_base[ite] + '/'
         if os.path.exists(viirs_tile_output_path) == False:
             os.makedirs(viirs_tile_output_path)
         else:
             pass
 
-        for idt in range(len(overpass_time_ind_group_ind)):
-            viirs_mat_day = np.nanmean(np.stack(viirs_mat_all[overpass_time_ind_group_ind[idt][0]:
-                                                              overpass_time_ind_group_ind[idt][-1]+1]), axis=0)
-            viirs_mat_day = np.flipud(viirs_mat_day)
-            # viirs_mat_day[np.isnan(viirs_mat_day)] = -9999
+        for igp in range(len(overpass_time_ind_group_ind)):
+            viirs_mat_all = []
+            for ife in range(len(overpass_time_ind_group_ind[igp])):
+                gzip_file = tar.extractfile(viirs_files[overpass_time_ind_group_ind[igp][ife]])
+                with gzip.open(gzip_file, 'rb') as file:
+                    viirs_mat = np.frombuffer(file.read(), dtype='f')
+                    viirs_mat = np.reshape(viirs_mat, (3750, 3750)).copy()
+                    viirs_mat[viirs_mat == -9999] = np.nan
+                    viirs_mat_all.append(viirs_mat)
+                file.close()
+                del(gzip_file, viirs_mat)
+                # print(viirs_files[overpass_time_ind_group_ind[igp][ife]])
 
-            viirs_output_path = (viirs_tile_output_path + 'viirs_lst_' + str(overpass_time[overpass_time_ind_unique[idt]])[0:7] +
-                                 str(overpass_name[overpass_time_ind_unique[idt] % 2]))
+            viirs_mat_day = np.nanmean(np.stack(viirs_mat_all), axis=0)
+            viirs_mat_day = np.flipud(viirs_mat_day)
+
+            # Write combined viirs daily data to file
+            viirs_output_path = (viirs_tile_output_path + 'viirs_lst_' + str(overpass_time[overpass_time_ind_unique[igp]])[0:7] +
+                                    str(overpass_name[overpass_time_ind_unique[igp] % 2]))
 
             with h5py.File(viirs_output_path + '.hdf5', 'w') as f:
                 f.create_dataset('viirs_lst', data=viirs_mat_day, compression='lzf')
             f.close()
             print(viirs_output_path)
-            del(viirs_mat_day, viirs_output_path)
+            del(viirs_mat_day, viirs_mat_all, viirs_output_path)
 
-        del(viirs_mat_all)
+        tar.close()
+
         del(viirs_files, viirs_files_time, viirs_files_time_local, overpass_time_ind, df_overpass_time_ind,
             overpass_time_ind_group, overpass_time_ind_group_ind, viirs_tile_output_path)
+
 
 
 
@@ -729,7 +733,7 @@ for iyr in [12]:#range(len(yearname)):
 
 
             # Load in SMAP 9 km and modeled 400 m SM data for downscaling
-            for idt in range(176, 186):#range(daysofyear[iyr]):
+            for idt in range(daysofyear[iyr]):
                 date_read = date_seq_ymd_group[iyr][idt]
                 # SMAP 9km SM
                 smap_sm_file = path_smap + '/9km/smap_sm_9km_' + str(yearname[iyr]) + date_read[4:6] + '.hdf5'
@@ -865,4 +869,41 @@ for iyr in [12]:#range(len(yearname)):
                     model_sm_400m_am_sub, model_sm_400m_pm_agg, model_sm_400m_pm_delta, model_sm_400m_pm_delta_disagg,
                     model_sm_400m_pm_sub_output, model_sm_400m_pm_sub)
 
+
+
+
+
+
+with tarfile.open('/Volumes/KINGSTON/FINAL_LST_T085.tar.gz', 'r') as tar:
+    # Get a list of all members (files) in the .tar file
+    file_list = tar.getnames()
+    file_object = tar.extractfile(file_list[0])
+
+    viirs_mat_all = []
+    for ife in range(len(file_list)):
+        with gzip.open(file_list[ife], 'rb') as file:
+            viirs_mat = np.frombuffer(file.read(), dtype='f')
+            viirs_mat = np.reshape(viirs_mat, (3750, 3750)).copy()
+            viirs_mat[viirs_mat == -9999] = np.nan
+            viirs_mat_all.append(viirs_mat)
+            del (viirs_mat)
+        file.close()
+
+
+
+
+with tarfile.open('/Volumes/KINGSTON/FINAL_LST_T080.tar.gz', 'r') as tar:
+    file_list = tar.getnames()
+    viirs_mat_all = []
+    for ife in range(100):#range(len(file_list)):
+        gzip_file = tar.extractfile(file_list[ife])
+        with gzip.open(gzip_file, 'rb') as file:
+            viirs_mat = np.frombuffer(file.read(), dtype='f')
+            viirs_mat = np.reshape(viirs_mat, (3750, 3750)).copy()
+            viirs_mat[viirs_mat == -9999] = np.nan
+            viirs_mat_all.append(viirs_mat)
+            del(viirs_mat, gzip_file)
+        file.close()
+        print(file_list[ife])
+tar.close()
 
